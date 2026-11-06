@@ -1,0 +1,130 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --brand-color: #38bdf8;
+  color-scheme: dark;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background-color: #020617;
+    accent-color: var(--brand-color);
+  }
+}
+
+/* ==========================================================================
+   View Transitions API ネイティブUI遷移スタイル (外部アニメーションライブラリ不使用)
+   ========================================================================== */
+
+.vt-active-pill {
+  view-transition-name: active-preset-pill;
+}
+
+.vt-preset-card {
+  view-transition-name: preset-badge-card;
+}
+
+.vt-preset-title {
+  view-transition-name: preset-badge-title;
+  width: fit-content;
+}
+
+.vt-preset-elevation {
+  view-transition-name: preset-badge-elevation;
+  width: fit-content;
+}
+
+.vt-inspector-card {
+  view-transition-name: inspector-card;
+}
+
+.vt-layer-menu {
+  view-transition-name: layer-menu-panel;
+}
+
+::view-transition-group(active-preset-pill) {
+  animation-duration: 280ms;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+::view-transition-group(preset-badge-card),
+::view-transition-group(preset-badge-title),
+::view-transition-group(preset-badge-elevation),
+::view-transition-group(inspector-card),
+::view-transition-group(layer-menu-panel) {
+  animation-duration: 300ms;
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+::view-transition-old(preset-badge-title),
+::view-transition-new(preset-badge-title),
+::view-transition-old(preset-badge-elevation),
+::view-transition-new(preset-badge-elevation) {
+  height: 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}
+
+/* Fallback for older browsers without accent-color support */
+@supports not (accent-color: #38bdf8) {
+  input[type='range'] {
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+  }
+  input[type='range']::-webkit-slider-runnable-track {
+    width: 100%;
+    height: 8px;
+    background: #334155;
+    border-radius: 4px;
+  }
+  input[type='range']::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 16px;
+    width: 16px;
+    border-radius: 50%;
+    background: var(--brand-color, #38bdf8);
+    cursor: pointer;
+    margin-top: -4px;
+  }
+}
+
+/* MapLibre コントロールのダークテーマ調和 */
+.maplibregl-ctrl-group {
+  background: rgba(15, 23, 42, 0.85) !important;
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(51, 65, 85, 0.7) !important;
+  border-radius: 12px !important;
+  overflow: hidden;
+}
+
+.maplibregl-ctrl-group button {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+.maplibregl-ctrl-attrib {
+  background-color: rgba(15, 23, 42, 0.75) !important;
+  color: #cbd5e1 !important;
+  font-size: 10px !important;
+  border-radius: 6px !important;
+}
+
+.maplibregl-ctrl-attrib a {
+  color: #38bdf8 !important;
+}
