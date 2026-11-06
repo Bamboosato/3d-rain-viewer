@@ -563,8 +563,8 @@ export const App: React.FC = () => {
         />
       </div>
 
-      {/* 右下: 降雨強度 (mm/h) カラーバー凡例 */}
-      <div className="pointer-events-none hidden sm:block absolute bottom-32 sm:bottom-6 right-4 z-10">
+      {/* 右下: 降雨強度 (mm/h) カラーバー凡例 (初期状態は折りたたみ、必要な時のみ展開) */}
+      <div className="pointer-events-none hidden sm:block absolute bottom-6 right-4 z-20">
         <Legend
           maxPrecipitation={rainLayerData?.maxPrecipitation ?? 0}
           isLoading={isLoadingRain}
