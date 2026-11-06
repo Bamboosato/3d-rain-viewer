@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type maplibregl from 'maplibre-gl';
 import {
   CloudRain,
@@ -29,6 +29,12 @@ import {
   fetchJMANowcastCatalog,
   fetchJMANowcastRainLayer,
 } from './lib/jmaNowcastClient';
+import {
+  FAVORITE_AREA_GROUP,
+  isSameCoordinate,
+  loadFavoriteLocations,
+  saveFavoriteLocations,
+} from './lib/favoritesStorage';
 import { runViewTransition } from './lib/viewTransition';
 import type {
   BaseMapId,
@@ -58,6 +64,7 @@ export const App: React.FC = () => {
   const [activePresetRain, setActivePresetRain] = useState<number | null>(null);
 
   const [inspectedPoint, setInspectedPoint] = useState<InspectorPoint | null>(null);
+  const [favorites, setFavorites] = useState<PresetLocation[]>(() => loadFavoriteLocations());
   const [showCreditModal, setShowCreditModal] = useState<boolean>(false);
   const [openTopPanel, setOpenTopPanel] = useState<'preset' | 'layer' | null>(null);
   const [installPromptEvent, setInstallPromptEvent] = useState<
@@ -360,7 +367,68 @@ export const App: React.FC = () => {
         precipitation: inspected.precipitation ?? 0,
         screenX,
         screenY,
-        label: `${preset.emoji} ${preset.name}（山頂）`,
+        label: preset.isFavorite ? `⭐ ${preset.name}` : `${preset.emoji} ${preset.name}（山頂）`,
+      });
+    });
+  }, []);
+
+  // 現在インスペクターで表示中の地点が既にお気に入り登録済みか判定
+  const matchedFavorite = useMemo(() => {
+    if (!inspectedPoint) return null;
+    return (
+      favorites.find((f) =>
+        isSameCoordinate(f.center[0], f.center[1], inspectedPoint.lng, inspectedPoint.lat)
+      ) ?? null
+    );
+  }, [favorites, inspectedPoint]);
+
+  // お気に入り地点の登録・更新（登録時点の縮尺・傾き・方角を記憶）
+  const handleSaveFavorite = useCallback(
+    (customName: string) => {
+      if (!inspectedPoint) return;
+      const map = mapInstanceRef.current;
+      const currentZoom = Number((map?.getZoom() ?? 10.5).toFixed(2));
+      const currentPitch = Math.round(map?.getPitch() ?? 60);
+      const currentBearing = Math.round(map?.getBearing() ?? 0);
+
+      const newFav: PresetLocation = {
+        id: matchedFavorite?.id ?? `fav-${Date.now()}`,
+        name: customName,
+        emoji: '⭐',
+        areaGroup: FAVORITE_AREA_GROUP,
+        region: `ズーム${currentZoom.toFixed(1)} · 傾き${currentPitch}°`,
+        elevation: Math.round(inspectedPoint.elevation ?? 0),
+        center: [inspectedPoint.lng, inspectedPoint.lat],
+        zoom: currentZoom,
+        pitch: currentPitch,
+        bearing: currentBearing,
+        description: `登録時点のカメラ設定（縮尺 ${currentZoom.toFixed(1)} / 傾き ${currentPitch}° / 方角 ${currentBearing}°）を記憶したお気に入り地点です。`,
+        isFavorite: true,
+      };
+
+      runViewTransition(() => {
+        setFavorites((prev) => {
+          const exists = prev.some((f) => f.id === newFav.id);
+          const next = exists
+            ? prev.map((f) => (f.id === newFav.id ? newFav : f))
+            : [newFav, ...prev];
+          saveFavoriteLocations(next);
+          return next;
+        });
+        setActivePreset(newFav);
+        setInspectedPoint((prev) => (prev ? { ...prev, label: `⭐ ${customName}` } : null));
+      });
+    },
+    [inspectedPoint, matchedFavorite]
+  );
+
+  // お気に入り地点の削除
+  const handleRemoveFavorite = useCallback((id: string) => {
+    runViewTransition(() => {
+      setFavorites((prev) => {
+        const next = prev.filter((f) => f.id !== id);
+        saveFavoriteLocations(next);
+        return next;
       });
     });
   }, []);
@@ -473,9 +541,11 @@ export const App: React.FC = () => {
         <div className="pointer-events-auto flex items-center gap-1.5 sm:gap-2 shrink-0">
           <PresetNav
             presets={PRESET_LOCATIONS}
+            favorites={favorites}
             activePreset={activePreset}
             activePresetRain={activePresetRain}
             onSelectPreset={handleSelectPreset}
+            onRemoveFavorite={handleRemoveFavorite}
             isOpen={openTopPanel === 'preset'}
             onToggleOpen={() =>
               runViewTransition(() =>
@@ -548,6 +618,9 @@ export const App: React.FC = () => {
         <Inspector
           point={inspectedPoint}
           onClose={() => runViewTransition(() => setInspectedPoint(null))}
+          matchedFavorite={matchedFavorite}
+          onSaveFavorite={handleSaveFavorite}
+          onRemoveFavorite={handleRemoveFavorite}
         />
       </div>
 

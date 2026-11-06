@@ -1,14 +1,27 @@
 import React, { useMemo, useState } from 'react';
-import { Compass, Mountain, CloudRain, ChevronUp, Search, X, MapPin } from 'lucide-react';
+import {
+  Compass,
+  Mountain,
+  CloudRain,
+  ChevronUp,
+  Search,
+  X,
+  MapPin,
+  Star,
+  Trash2,
+} from 'lucide-react';
 import type { PresetLocation } from '../types/map';
 import { AREA_GROUPS } from '../lib/hyakumeizanData';
+import { FAVORITE_AREA_GROUP } from '../lib/favoritesStorage';
 import { runViewTransition } from '../lib/viewTransition';
 
 interface PresetNavProps {
   presets: PresetLocation[];
+  favorites?: PresetLocation[];
   activePreset: PresetLocation;
   activePresetRain: number | null;
   onSelectPreset: (preset: PresetLocation) => void;
+  onRemoveFavorite?: (id: string) => void;
   isOpen?: boolean;
   onToggleOpen?: () => void;
 }
@@ -24,9 +37,11 @@ function getRainSummaryLabel(mmh: number | null): string {
 
 export const PresetNav: React.FC<PresetNavProps> = ({
   presets,
+  favorites = [],
   activePreset,
   activePresetRain,
   onSelectPreset,
+  onRemoveFavorite,
   isOpen: controlledIsOpen,
   onToggleOpen,
 }) => {
@@ -49,6 +64,9 @@ export const PresetNav: React.FC<PresetNavProps> = ({
     });
   };
 
+  // 全リスト（お気に入り＋百名山100座）
+  const allLocations = useMemo(() => [...favorites, ...presets], [favorites, presets]);
+
   // 各地域ブロックごとの山岳数集計
   const areaCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -61,12 +79,14 @@ export const PresetNav: React.FC<PresetNavProps> = ({
 
   // 選択中の地域ブロックでフィルタした山岳リスト
   const areaFilteredPresets = useMemo(() => {
+    if (selectedArea === FAVORITE_AREA_GROUP) return favorites;
     if (selectedArea === 'ALL') return presets;
     return presets.filter((p) => p.areaGroup === selectedArea);
-  }, [presets, selectedArea]);
+  }, [presets, favorites, selectedArea]);
 
   // 選択中の地域ブロックに含まれる都道府県一覧とそれぞれの座数
   const availablePrefectures = useMemo(() => {
+    if (selectedArea === FAVORITE_AREA_GROUP) return [];
     const prefMap = new Map<string, number>();
     for (const p of areaFilteredPresets) {
       const prefs = p.prefectures ?? [p.region];
@@ -75,16 +95,20 @@ export const PresetNav: React.FC<PresetNavProps> = ({
       }
     }
     return Array.from(prefMap.entries()).map(([name, count]) => ({ name, count }));
-  }, [areaFilteredPresets]);
+  }, [areaFilteredPresets, selectedArea]);
 
   // 地域・都道府県・キーワード検索を組み合わせた最終的な山岳リスト
   const filteredPresets = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    // 検索キーワードが入力されている場合は、地域・都道府県の枠を超えて全100名山から横断検索可能にする
-    const baseList = q.length > 0 ? presets : areaFilteredPresets;
+    // 検索キーワードが入力されている場合は、お気に入り＋全100名山から横断検索可能にする
+    const baseList = q.length > 0 ? allLocations : areaFilteredPresets;
 
     return baseList.filter((p) => {
-      if (q.length === 0 && selectedPrefecture !== 'ALL') {
+      if (
+        q.length === 0 &&
+        selectedArea !== FAVORITE_AREA_GROUP &&
+        selectedPrefecture !== 'ALL'
+      ) {
         const prefs = p.prefectures ?? [p.region];
         if (!prefs.includes(selectedPrefecture)) {
           return false;
@@ -99,16 +123,18 @@ export const PresetNav: React.FC<PresetNavProps> = ({
       }
       return true;
     });
-  }, [presets, areaFilteredPresets, selectedPrefecture, searchQuery]);
+  }, [allLocations, areaFilteredPresets, selectedArea, selectedPrefecture, searchQuery]);
 
   const handleAreaChange = (newArea: string) => {
     setSelectedArea(newArea);
     setSelectedPrefecture('ALL');
   };
 
+  const isFavoriteView = selectedArea === FAVORITE_AREA_GROUP && searchQuery.trim() === '';
+
   return (
     <section
-      aria-label="日本百名山プリセット切り替えナビゲーション"
+      aria-label="日本百名山・お気に入り地点切り替えナビゲーション"
       className="pointer-events-auto relative flex items-center"
     >
       {/* 表示／非表示 トグルボタン */}
@@ -118,10 +144,10 @@ export const PresetNav: React.FC<PresetNavProps> = ({
         onClick={handleToggleOpen}
         aria-expanded={isOpen}
         aria-controls="preset-nav-panel"
-        className="inline-flex items-center gap-1.5 min-h-[40px] sm:min-h-[42px] px-3 sm:px-3.5 py-1.5 rounded-xl bg-slate-900/90 hover:bg-slate-800/95 backdrop-blur-md border border-slate-700/80 shadow-lg text-xs sm:text-sm font-bold text-slate-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+        className="inline-flex items-center gap-1.5 min-h-[42px] px-3 sm:px-3.5 py-1.5 rounded-xl bg-slate-900/90 hover:bg-slate-800/95 backdrop-blur-md border border-slate-700/80 shadow-lg text-xs sm:text-sm font-bold text-slate-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
       >
         <Compass className="w-4 h-4 text-sky-400 shrink-0" />
-        <span className="hidden md:inline">百名山</span>
+        <span className="hidden md:inline">百名山・お気に入り</span>
         <span className="px-2 py-0.5 rounded-lg bg-slate-800/90 border border-slate-700 text-xs font-semibold text-sky-200 max-w-[9rem] sm:max-w-none truncate">
           {activePreset.emoji} {activePreset.name}
         </span>
@@ -136,56 +162,100 @@ export const PresetNav: React.FC<PresetNavProps> = ({
       {isOpen && (
         <div
           id="preset-nav-panel"
-          className="vt-preset-card safe-top-dropdown fixed z-30 rounded-2xl bg-slate-900/90 backdrop-blur-md border border-slate-700/80 shadow-2xl p-3 text-slate-100 w-[calc(100vw-1.5rem)] sm:w-[26rem] max-w-md space-y-2.5 overflow-y-auto"
+          className="vt-preset-card safe-top-dropdown fixed z-30 rounded-2xl bg-slate-900/90 backdrop-blur-md border border-slate-700/80 shadow-2xl p-3.5 text-slate-100 w-[calc(100vw-1.5rem)] sm:w-[26rem] max-w-md space-y-2.5 overflow-y-auto"
         >
-          {/* 階層ステップ1: 地域ブロック ➔ 都道府県 絞り込みセレクト */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <label className="flex flex-col gap-1 text-xs text-slate-300 font-semibold">
-              <span className="inline-flex items-center gap-1 px-0.5">
-                <MapPin className="w-3.5 h-3.5 text-sky-400" />
-                <span>1. 地域・山域を選ぶ</span>
-              </span>
-              <select
-                id="preset-area-select"
-                aria-label="地域・山域を選択"
-                value={selectedArea}
-                onChange={(e) => handleAreaChange(e.target.value)}
-                className="w-full rounded-xl bg-slate-950/90 border border-slate-700/90 px-3 py-2 text-sm sm:text-xs text-slate-100 font-medium focus:outline-none focus:ring-2 focus:ring-sky-400 cursor-pointer"
-              >
-                <option value="ALL">すべて表示 ({presets.length}座)</option>
-                {AREA_GROUPS.map((area) => (
-                  <option key={area} value={area}>
-                    {area} ({areaCounts.get(area) ?? 0}座)
-                  </option>
-                ))}
-              </select>
-            </label>
+          {/* クイック切替タブ: 日本百名山 ⇄ ⭐ お気に入り地点 */}
+          <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-slate-950/85 border border-slate-800">
+            <button
+              type="button"
+              id="preset-tab-hyakumeizan"
+              onClick={() => {
+                if (selectedArea === FAVORITE_AREA_GROUP) {
+                  handleAreaChange(
+                    activePreset.areaGroup && activePreset.areaGroup !== FAVORITE_AREA_GROUP
+                      ? activePreset.areaGroup
+                      : '富士山・八ヶ岳・中央アルプス'
+                  );
+                }
+              }}
+              className={`inline-flex items-center justify-center gap-1.5 min-h-[36px] px-2.5 py-1 rounded-lg text-xs sm:text-sm font-bold transition-colors cursor-pointer ${
+                selectedArea !== FAVORITE_AREA_GROUP
+                  ? 'bg-sky-500/25 text-sky-200 border border-sky-400/50 shadow'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Mountain className="w-4 h-4 text-sky-400 shrink-0" />
+              <span>日本百名山 ({presets.length})</span>
+            </button>
 
-            <label className="flex flex-col gap-1 text-xs text-slate-300 font-semibold">
-              <span className="inline-flex items-center gap-1 px-0.5">
-                <Compass className="w-3.5 h-3.5 text-emerald-400" />
-                <span>2. 都道府県で絞り込む</span>
-              </span>
-              <select
-                id="preset-pref-select"
-                aria-label="都道府県で絞り込む"
-                value={selectedPrefecture}
-                onChange={(e) => setSelectedPrefecture(e.target.value)}
-                className="w-full rounded-xl bg-slate-950/90 border border-slate-700/90 px-3 py-2 text-sm sm:text-xs text-slate-100 font-medium focus:outline-none focus:ring-2 focus:ring-sky-400 cursor-pointer"
-              >
-                <option value="ALL">
-                  すべての都道府県 ({areaFilteredPresets.length}座)
-                </option>
-                {availablePrefectures.map((pref) => (
-                  <option key={pref.name} value={pref.name}>
-                    {pref.name} ({pref.count}座)
-                  </option>
-                ))}
-              </select>
-            </label>
+            <button
+              type="button"
+              id="preset-tab-favorites"
+              onClick={() => handleAreaChange(FAVORITE_AREA_GROUP)}
+              className={`inline-flex items-center justify-center gap-1.5 min-h-[36px] px-2.5 py-1 rounded-lg text-xs sm:text-sm font-bold transition-colors cursor-pointer ${
+                selectedArea === FAVORITE_AREA_GROUP
+                  ? 'bg-amber-500/25 text-amber-200 border border-amber-400/50 shadow'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Star className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>お気に入り ({favorites.length})</span>
+            </button>
           </div>
 
-          {/* クイック検索バー（山名・よみがな・都道府県） */}
+          {/* 階層ステップ1: 地域ブロック ➔ 都道府県 絞り込みセレクト（百名山モード時のみ表示） */}
+          {!isFavoriteView && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <label className="flex flex-col gap-1 text-xs text-slate-300 font-semibold">
+                <span className="inline-flex items-center gap-1 px-0.5">
+                  <MapPin className="w-3.5 h-3.5 text-sky-400" />
+                  <span>1. 地域・山域を選ぶ</span>
+                </span>
+                <select
+                  id="preset-area-select"
+                  aria-label="地域・山域を選択"
+                  value={selectedArea}
+                  onChange={(e) => handleAreaChange(e.target.value)}
+                  className="w-full rounded-xl bg-slate-950/90 border border-slate-700/90 px-3 py-2 text-sm sm:text-xs text-slate-100 font-medium focus:outline-none focus:ring-2 focus:ring-sky-400 cursor-pointer"
+                >
+                  <option value="ALL">すべて表示 ({presets.length}座)</option>
+                  <option value={FAVORITE_AREA_GROUP}>
+                    {FAVORITE_AREA_GROUP} ({favorites.length}件)
+                  </option>
+                  {AREA_GROUPS.map((area) => (
+                    <option key={area} value={area}>
+                      {area} ({areaCounts.get(area) ?? 0}座)
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="flex flex-col gap-1 text-xs text-slate-300 font-semibold">
+                <span className="inline-flex items-center gap-1 px-0.5">
+                  <Compass className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>2. 都道府県で絞り込む</span>
+                </span>
+                <select
+                  id="preset-pref-select"
+                  aria-label="都道府県で絞り込む"
+                  value={selectedPrefecture}
+                  onChange={(e) => setSelectedPrefecture(e.target.value)}
+                  className="w-full rounded-xl bg-slate-950/90 border border-slate-700/90 px-3 py-2 text-sm sm:text-xs text-slate-100 font-medium focus:outline-none focus:ring-2 focus:ring-sky-400 cursor-pointer"
+                >
+                  <option value="ALL">
+                    すべての都道府県 ({areaFilteredPresets.length}座)
+                  </option>
+                  {availablePrefectures.map((pref) => (
+                    <option key={pref.name} value={pref.name}>
+                      {pref.name} ({pref.count}座)
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          )}
+
+          {/* クイック検索バー（山名・よみがな・都道府県・お気に入り名） */}
           <div className="relative flex items-center">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 pointer-events-none" />
             <input
@@ -193,8 +263,8 @@ export const PresetNav: React.FC<PresetNavProps> = ({
               type="search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="山名・よみがな・都道府県で検索 (例: 槍ヶ岳, やり)"
-              aria-label="百名山を山名やよみがなで検索"
+              placeholder="山名・よみがな・お気に入り名で検索"
+              aria-label="百名山やお気に入り地点を検索"
               className="w-full rounded-xl bg-slate-950/75 border border-slate-800 focus:border-sky-400/70 pl-9 pr-8 py-2 text-sm sm:text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-400"
             />
             {searchQuery.length > 0 && (
@@ -209,44 +279,45 @@ export const PresetNav: React.FC<PresetNavProps> = ({
             )}
           </div>
 
-          {/* 階層ステップ2: 絞り込まれた山岳選択グリッド */}
+          {/* 階層ステップ2: 絞り込まれた山岳・お気に入り選択リスト */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between text-xs text-slate-300 font-semibold px-0.5">
               <span>
-                3. 山岳を選択 ({filteredPresets.length} / {presets.length}座)
+                {isFavoriteView
+                  ? `登録済みのお気に入り地点 (${favorites.length}件)`
+                  : `3. 山岳を選択 (${filteredPresets.length} / ${presets.length}座)`}
               </span>
-              {activePreset.areaGroup && selectedArea !== activePreset.areaGroup && searchQuery === '' && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedArea(activePreset.areaGroup ?? 'ALL');
-                    setSelectedPrefecture('ALL');
-                  }}
-                  className="text-sky-400 hover:text-sky-300 underline cursor-pointer"
-                >
-                  選択中の「{activePreset.name}」の地域を表示
-                </button>
-              )}
+              {!isFavoriteView &&
+                activePreset.areaGroup &&
+                selectedArea !== activePreset.areaGroup &&
+                searchQuery === '' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedArea(activePreset.areaGroup ?? 'ALL');
+                      setSelectedPrefecture('ALL');
+                    }}
+                    className="text-sky-400 hover:text-sky-300 underline cursor-pointer"
+                  >
+                    選択中の「{activePreset.name}」を表示
+                  </button>
+                )}
             </div>
 
             <div
               id="preset-mountain-list"
               role="group"
-              aria-label="山岳選択リスト"
-              className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-48 overflow-y-auto pr-1"
+              aria-label="山岳・お気に入り選択リスト"
+              className={`grid gap-2 max-h-48 overflow-y-auto pr-1 ${
+                isFavoriteView ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-2 sm:grid-cols-3'
+              }`}
             >
               {filteredPresets.map((preset) => {
                 const isSelected = preset.id === activePreset.id;
                 return (
-                  <button
+                  <div
                     key={preset.id}
-                    type="button"
-                    onClick={() => {
-                      setInternalIsOpen(false);
-                      onSelectPreset(preset);
-                    }}
-                    aria-pressed={isSelected}
-                    className={`relative flex flex-col items-start justify-center px-3 py-2 rounded-xl text-left transition-colors cursor-pointer select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 ${
+                    className={`relative flex items-center justify-between gap-1 rounded-xl transition-colors ${
                       isSelected
                         ? 'text-white font-bold shadow-md'
                         : 'text-slate-100 hover:text-white hover:bg-slate-800/80 bg-slate-800/50 border border-slate-700/80'
@@ -258,30 +329,61 @@ export const PresetNav: React.FC<PresetNavProps> = ({
                         aria-hidden="true"
                       />
                     )}
-                    <div className="flex items-center gap-1.5 w-full min-w-0">
-                      <span className="text-sm leading-none shrink-0">{preset.emoji}</span>
-                      <span className="text-sm sm:text-xs font-semibold truncate">{preset.name}</span>
-                    </div>
-                    <div
-                      className={`text-xs sm:text-[10px] font-mono truncate w-full mt-0.5 ${
-                        isSelected ? 'text-sky-100' : 'text-slate-400'
-                      }`}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setInternalIsOpen(false);
+                        onSelectPreset(preset);
+                      }}
+                      aria-pressed={isSelected}
+                      className="flex-1 flex flex-col items-start justify-center px-3 py-2 text-left cursor-pointer select-none min-w-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 rounded-xl"
                     >
-                      {preset.elevation.toLocaleString()}m · {preset.region}
-                    </div>
-                  </button>
+                      <div className="flex items-center gap-1.5 w-full min-w-0">
+                        <span className="text-sm leading-none shrink-0">{preset.emoji}</span>
+                        <span className="text-sm sm:text-xs font-semibold truncate">
+                          {preset.name}
+                        </span>
+                      </div>
+                      <div
+                        className={`text-xs sm:text-[10px] font-mono truncate w-full mt-0.5 ${
+                          isSelected ? 'text-sky-100' : 'text-slate-400'
+                        }`}
+                      >
+                        {preset.isFavorite
+                          ? `${preset.elevation > 0 ? `${preset.elevation.toLocaleString()}m · ` : ''}ズーム${preset.zoom.toFixed(1)} · 傾き${Math.round(preset.pitch)}°`
+                          : `${preset.elevation.toLocaleString()}m · ${preset.region}`}
+                      </div>
+                    </button>
+
+                    {preset.isFavorite && onRemoveFavorite && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onRemoveFavorite(preset.id);
+                        }}
+                        title={`「${preset.name}」をお気に入りから削除`}
+                        aria-label={`「${preset.name}」をお気に入りから削除`}
+                        className="p-2 mr-1 rounded-lg text-slate-300 hover:text-rose-300 hover:bg-rose-500/20 transition-colors cursor-pointer shrink-0"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
                 );
               })}
 
               {filteredPresets.length === 0 && (
-                <div className="col-span-full py-4 text-center text-xs text-slate-400">
-                  条件に一致する百名山が見つかりませんでした。
+                <div className="col-span-full py-5 px-3 text-center text-xs text-slate-400 bg-slate-950/60 rounded-xl border border-slate-800/80 leading-relaxed">
+                  {isFavoriteView
+                    ? 'まだお気に入り地点が登録されていません。\n地図上の好きな地点をタップし、「地点インスペクター」の「⭐ お気に入り地点に登録」から保存できます。'
+                    : '条件に一致する地点が見つかりませんでした。'}
                 </div>
               )}
             </div>
           </div>
 
-          {/* 選択中の山岳概要・標高・現在の雨量 */}
+          {/* 選択中の山岳・地点概要・標高・現在の雨量 */}
           <div className="pt-2 border-t border-slate-800/90 space-y-2">
             <div className="flex items-baseline justify-between gap-2">
               <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
@@ -315,7 +417,7 @@ export const PresetNav: React.FC<PresetNavProps> = ({
               <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-sky-500/15 border border-sky-400/30 text-sky-200 font-mono text-[11px] font-semibold">
                 <CloudRain className="w-3.5 h-3.5 text-sky-400" />
                 <span>
-                  山頂付近の雨量:{' '}
+                  付近の雨量:{' '}
                   {activePresetRain !== null ? `${activePresetRain.toFixed(1)} mm/h` : '計測中...'}
                 </span>
               </div>

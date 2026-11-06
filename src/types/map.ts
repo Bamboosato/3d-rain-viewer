@@ -29,6 +29,7 @@ export interface PresetLocation {
   pitch: number;
   bearing: number;
   description: string;
+  isFavorite?: boolean;
 }
 
 export interface InspectorPoint {
