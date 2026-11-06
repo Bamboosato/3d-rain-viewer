@@ -70,28 +70,28 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
   return (
     <section
       aria-label="雨雲タイムラプスコントローラー"
-      className="pointer-events-auto rounded-2xl bg-slate-900/90 backdrop-blur-md border border-slate-700/80 shadow-2xl px-3.5 sm:px-4 py-2.5 text-sm text-slate-100 w-full max-w-xl"
+      className="pointer-events-auto rounded-2xl bg-slate-900/90 backdrop-blur-md border border-slate-700/80 shadow-2xl px-3 sm:px-4 py-2 sm:py-2.5 text-sm text-slate-100 w-full max-w-xl overflow-hidden"
     >
       {/* 1行目: PC・スマホ共通のシンプルな操作バー（左:再生コントロール / 右:日時＋過去・現在・予測） */}
-      <div className="flex flex-nowrap items-center justify-between gap-2 whitespace-nowrap">
-        {/* 左側: 大きめの再生・コマ送り・速度ボタン */}
-        <div className="flex items-center gap-1.5 shrink-0">
+      <div className="flex flex-nowrap items-center justify-between gap-1.5 sm:gap-2 min-w-0 whitespace-nowrap">
+        {/* 左側: 再生・コマ送り・速度ボタン */}
+        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
           <button
             type="button"
             id="timeline-play-btn"
             onClick={onTogglePlay}
             disabled={frames.length <= 1}
             aria-label={isPlaying ? 'タイムラプス再生を停止' : 'タイムラプスを再生'}
-            className={`inline-flex items-center justify-center gap-1.5 h-10 px-3.5 rounded-xl font-bold transition-colors cursor-pointer shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 ${
+            className={`inline-flex items-center justify-center gap-1.5 w-9 h-9 sm:w-auto sm:h-10 sm:px-3.5 rounded-xl font-bold transition-colors cursor-pointer shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 ${
               isPlaying
                 ? 'bg-amber-500 hover:bg-amber-400 text-slate-950'
                 : 'bg-sky-500 hover:bg-sky-400 text-white'
             } disabled:opacity-50`}
           >
             {isPlaying ? (
-              <Pause className="w-4 h-4 fill-current" />
+              <Pause className="w-4 h-4 fill-current shrink-0" />
             ) : (
-              <Play className="w-4 h-4 fill-current" />
+              <Play className="w-4 h-4 fill-current shrink-0" />
             )}
             <span className="hidden sm:inline text-sm">{isPlaying ? '停止' : '再生'}</span>
           </button>
@@ -101,7 +101,7 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
             onClick={() => onSelectIndex(Math.max(0, currentIndex - 1))}
             disabled={currentIndex <= 0}
             aria-label="前の時刻フレームへ戻る"
-            className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-slate-800/90 hover:bg-slate-700 disabled:opacity-40 text-slate-100 border border-slate-700/80 transition-colors cursor-pointer"
+            className="inline-flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-slate-800/90 hover:bg-slate-700 disabled:opacity-40 text-slate-100 border border-slate-700/80 transition-colors cursor-pointer shrink-0"
           >
             <SkipBack className="w-4 h-4" />
           </button>
@@ -111,7 +111,7 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
             onClick={() => onSelectIndex(Math.min(maxIndex, currentIndex + 1))}
             disabled={currentIndex >= maxIndex}
             aria-label="次の時刻フレームへ進む"
-            className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-slate-800/90 hover:bg-slate-700 disabled:opacity-40 text-slate-100 border border-slate-700/80 transition-colors cursor-pointer"
+            className="inline-flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-slate-800/90 hover:bg-slate-700 disabled:opacity-40 text-slate-100 border border-slate-700/80 transition-colors cursor-pointer shrink-0"
           >
             <SkipForward className="w-4 h-4" />
           </button>
@@ -122,13 +122,13 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
             onClick={onToggleSpeed}
             title={`再生速度切替 (${playbackSpeed === 2 ? '0.5秒/コマ' : '1.0秒/コマ'})`}
             aria-label={`再生速度を切り替え（現在 ${playbackSpeed}倍速）`}
-            className="inline-flex items-center justify-center h-10 px-3 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-100 font-mono text-sm font-bold transition-colors cursor-pointer border border-slate-700/80"
+            className="inline-flex items-center justify-center h-9 sm:h-10 px-2 sm:px-3 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-100 font-mono text-xs sm:text-sm font-bold transition-colors cursor-pointer border border-slate-700/80 shrink-0"
           >
             {playbackSpeed}x
           </button>
         </div>
 
-        {/* 右側: 大きくて見やすい日時バッジ ＋ 固定2文字ピル（「過去」「現在」「予測」） */}
+        {/* 右側: 見やすい日時バッジ ＋ 固定2文字ピル（「過去」「現在」「予測」） */}
         <div
           id="timeline-timestamp-badge"
           onClick={() => {
@@ -141,16 +141,20 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
               ? 'クリック／タップして現在時刻の実況へ戻る'
               : undefined
           }
-          className="flex items-center justify-center gap-2 h-10 px-3 sm:px-3.5 rounded-xl bg-slate-950/90 border border-sky-500/40 shadow-inner min-w-0 shrink-0 cursor-pointer"
+          className="flex items-center justify-center gap-1.5 sm:gap-2 h-9 sm:h-10 px-2.5 sm:px-3.5 rounded-xl bg-slate-950/90 border border-sky-500/40 shadow-inner min-w-0 cursor-pointer"
         >
-          <Clock className="w-4 h-4 text-sky-400 shrink-0" />
-          <span className="font-mono text-sm font-bold tracking-tight text-sky-100 tabular-nums">
+          <Clock
+            className={`w-3.5 h-3.5 sm:w-4 sm:h-4 text-sky-400 shrink-0 ${
+              isLoading ? 'animate-pulse' : ''
+            }`}
+          />
+          <span className="font-mono text-xs sm:text-sm font-bold tracking-tight text-sky-100 tabular-nums truncate">
             {compactDateJST}
           </span>
 
           <span
             id="timeline-status-pill"
-            className={`inline-flex items-center justify-center w-12 py-0.5 rounded-lg font-sans text-xs font-bold text-center ${
+            className={`inline-flex items-center justify-center px-2 sm:w-12 py-0.5 rounded-md sm:rounded-lg font-sans text-[11px] sm:text-xs font-bold text-center shrink-0 ${
               isForecastFrame
                 ? 'bg-amber-500/25 text-amber-200 border border-amber-400/50'
                 : isLatestObsFrame
@@ -160,13 +164,6 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
           >
             {fixedStateLabel}
           </span>
-
-          {isLoading && (
-            <span
-              title="雨雲データ取得中"
-              className="inline-block w-2 h-2 rounded-full bg-sky-400 animate-ping shrink-0"
-            />
-          )}
         </div>
       </div>
 

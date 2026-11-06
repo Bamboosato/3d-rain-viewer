@@ -124,7 +124,7 @@ export const PresetNav: React.FC<PresetNavProps> = ({
   return (
     <section
       aria-label="日本百名山・お気に入り地点切り替えナビゲーション"
-      className="pointer-events-auto relative flex items-center"
+      className="pointer-events-auto relative flex items-center min-w-0 shrink"
     >
       {/* 表示／非表示 トグルボタン */}
       <button
@@ -133,15 +133,15 @@ export const PresetNav: React.FC<PresetNavProps> = ({
         onClick={handleToggleOpen}
         aria-expanded={isOpen}
         aria-controls="preset-nav-panel"
-        className="inline-flex items-center gap-1.5 min-h-[42px] px-3 sm:px-3.5 py-1.5 rounded-xl bg-slate-900/90 hover:bg-slate-800/95 backdrop-blur-md border border-slate-700/80 shadow-lg text-xs sm:text-sm font-bold text-slate-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+        className="inline-flex items-center gap-1 sm:gap-1.5 min-h-[38px] sm:min-h-[42px] px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-slate-900/90 hover:bg-slate-800/95 backdrop-blur-md border border-slate-700/80 shadow-lg text-xs sm:text-sm font-bold text-slate-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 min-w-0 max-w-full"
       >
         <Compass className="w-4 h-4 text-sky-400 shrink-0" />
-        <span className="hidden md:inline">百名山・お気に入り</span>
-        <span className="px-2 py-0.5 rounded-lg bg-slate-800/90 border border-slate-700 text-xs font-semibold text-sky-200 max-w-[9rem] sm:max-w-none truncate">
+        <span className="hidden md:inline shrink-0">百名山・お気に入り</span>
+        <span className="px-2 py-0.5 rounded-lg bg-slate-800/90 border border-slate-700 text-xs font-semibold text-sky-200 max-w-[6.5rem] sm:max-w-[12rem] truncate">
           {activePreset.emoji} {activePreset.name}
         </span>
         <ChevronUp
-          className={`w-4 h-4 text-slate-400 transition-transform duration-200 shrink-0 ${
+          className={`w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-400 transition-transform duration-200 shrink-0 ${
             isOpen ? 'rotate-0' : 'rotate-180'
           }`}
         />

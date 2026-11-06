@@ -517,13 +517,13 @@ export const App: React.FC = () => {
         mapInstanceRef={mapInstanceRef}
       />
 
-      {/* 上部ヘッダーバー（スマホでは左側はアプリアイコンのみ表示し、右側ボタン群のサイズ・視認性を拡大） */}
+      {/* 上部ヘッダーバー（スマホでは左側はアプリアイコンのみ表示し、右側ボタン群が画面幅に収まるよう調整） */}
       <header className="safe-header-padding pointer-events-none absolute top-0 inset-x-0 z-20 flex items-center justify-between gap-2 bg-gradient-to-b from-slate-950/95 via-slate-950/55 to-transparent">
         <div className="pointer-events-auto flex items-center gap-2 min-w-0 shrink-0">
           <div
             title="3D RainScape | リアルタイム雨雲 × 3D立体地形ビューア"
             aria-label="3D RainScape"
-            className="flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-sky-400 to-blue-600 shadow-lg shadow-sky-500/25 shrink-0"
+            className="flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-sky-400 to-blue-600 shadow-lg shadow-sky-500/25 shrink-0"
           >
             <CloudRain className="w-5 h-5 text-white" />
           </div>
@@ -538,7 +538,7 @@ export const App: React.FC = () => {
         </div>
 
         {/* 右上操作ボタン群（百名山プリセット・表示調整・現在地・アプリ追加・情報アイコンを一列に集約） */}
-        <div className="pointer-events-auto flex items-center gap-1.5 sm:gap-2 shrink-0">
+        <div className="pointer-events-auto flex items-center justify-end gap-1.5 sm:gap-2 min-w-0 flex-1">
           <PresetNav
             presets={PRESET_LOCATIONS}
             favorites={favorites}
@@ -577,7 +577,7 @@ export const App: React.FC = () => {
               type="button"
               onClick={handleInstallPwa}
               title="ホーム画面にアプリを追加"
-              className="inline-flex items-center gap-1.5 min-h-[42px] px-3 sm:px-3.5 py-1.5 rounded-xl bg-emerald-500/25 hover:bg-emerald-500/35 backdrop-blur-md border border-emerald-400/50 shadow-lg text-sm font-bold text-emerald-200 transition-colors cursor-pointer"
+              className="inline-flex items-center justify-center gap-1.5 min-w-[38px] min-h-[38px] sm:min-h-[42px] px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-emerald-500/25 hover:bg-emerald-500/35 backdrop-blur-md border border-emerald-400/50 shadow-lg text-xs sm:text-sm font-bold text-emerald-200 transition-colors cursor-pointer shrink-0"
             >
               <Download className="w-4 h-4 text-emerald-400 shrink-0" />
               <span className="hidden md:inline">アプリ追加</span>
@@ -589,9 +589,9 @@ export const App: React.FC = () => {
             onClick={handleJumpToCurrentLocation}
             title="現在地へ移動"
             aria-label="現在地へ移動"
-            className="inline-flex items-center justify-center gap-1.5 min-w-[42px] min-h-[42px] px-3 sm:px-3.5 py-1.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 backdrop-blur-md border border-slate-700/80 shadow-lg text-sm font-bold text-slate-100 transition-colors cursor-pointer"
+            className="inline-flex items-center justify-center gap-1.5 w-[38px] h-[38px] sm:w-auto sm:min-h-[42px] sm:px-3.5 py-1.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 backdrop-blur-md border border-slate-700/80 shadow-lg text-xs sm:text-sm font-bold text-slate-100 transition-colors cursor-pointer shrink-0"
           >
-            <LocateFixed className="w-4 h-4 sm:w-4 sm:h-4 text-sky-400 shrink-0" />
+            <LocateFixed className="w-4 h-4 text-sky-400 shrink-0" />
             <span className="hidden sm:inline">現在地</span>
           </button>
 
@@ -606,9 +606,9 @@ export const App: React.FC = () => {
                 { focusTargetSelector: '#jaxa-credit-close-btn' }
               )
             }
-            className="inline-flex items-center justify-center w-[42px] h-[42px] rounded-xl bg-slate-900/90 hover:bg-slate-800 backdrop-blur-md border border-slate-700/80 shadow-lg text-slate-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+            className="inline-flex items-center justify-center w-[38px] h-[38px] sm:w-[42px] sm:h-[42px] rounded-xl bg-slate-900/90 hover:bg-slate-800 backdrop-blur-md border border-slate-700/80 shadow-lg text-slate-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 shrink-0"
           >
-            <Info className="w-5 h-5 text-sky-400" />
+            <Info className="w-4 h-4 sm:w-5 sm:h-5 text-sky-400" />
           </button>
         </div>
       </header>
@@ -634,7 +634,7 @@ export const App: React.FC = () => {
       </div>
 
       {/* 下部中央: 時系列タイムラプスバー (横方向センタリング + iPhone ホームバー safe-area-inset-bottom 対応) */}
-      <div className="safe-bottom-timeline pointer-events-none absolute inset-x-2.5 sm:inset-x-16 z-20 flex justify-center">
+      <div className="safe-bottom-timeline pointer-events-none absolute inset-x-2 sm:inset-x-16 z-20 flex justify-center">
         <TimelineBar
           rainSource={rainSource}
           onChangeRainSource={handleChangeRainSource}
