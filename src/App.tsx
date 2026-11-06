@@ -349,22 +349,20 @@ export const App: React.FC = () => {
       essential: true,
     });
 
-    runViewTransition(
-      () => {
-        setActivePreset(preset);
-        setActivePresetRain(inspected.precipitation ?? 0);
-        setInspectedPoint({
-          lng,
-          lat,
-          elevation: preset.elevation ?? inspected.elevation,
-          precipitation: inspected.precipitation ?? 0,
-          screenX,
-          screenY,
-          label: `${preset.emoji} ${preset.name}（山頂）`,
-        });
-      },
-      { focusTargetSelector: '#preset-active-heading' }
-    );
+    runViewTransition(() => {
+      setOpenTopPanel(null);
+      setActivePreset(preset);
+      setActivePresetRain(inspected.precipitation ?? 0);
+      setInspectedPoint({
+        lng,
+        lat,
+        elevation: preset.elevation ?? inspected.elevation,
+        precipitation: inspected.precipitation ?? 0,
+        screenX,
+        screenY,
+        label: `${preset.emoji} ${preset.name}（山頂）`,
+      });
+    });
   }, []);
 
   // 機能B-3: 地図クリック時のインスペクターカード表示・移動 (View Transitions API 連動)

@@ -241,7 +241,10 @@ export const PresetNav: React.FC<PresetNavProps> = ({
                   <button
                     key={preset.id}
                     type="button"
-                    onClick={() => onSelectPreset(preset)}
+                    onClick={() => {
+                      setInternalIsOpen(false);
+                      onSelectPreset(preset);
+                    }}
                     aria-pressed={isSelected}
                     className={`relative flex flex-col items-start justify-center px-2.5 py-1.5 rounded-xl text-left transition-colors cursor-pointer select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 ${
                       isSelected
