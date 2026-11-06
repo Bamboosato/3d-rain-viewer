@@ -573,7 +573,7 @@ export const App: React.FC = () => {
       </div>
 
       {/* 下部中央: 時系列タイムラプスバー (機能A: リアルタイム気象庁ナウキャスト ⇄ JAXA GSMaP 24h) */}
-      <div className="pointer-events-none absolute bottom-4 inset-x-4 sm:left-16 sm:right-64 z-20 flex justify-center">
+      <div className="pointer-events-none absolute bottom-2.5 sm:bottom-4 inset-x-2.5 sm:left-16 sm:right-64 z-20 flex justify-center">
         <TimelineBar
           rainSource={rainSource}
           onChangeRainSource={handleChangeRainSource}
