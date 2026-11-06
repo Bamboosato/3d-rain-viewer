@@ -86,9 +86,6 @@ export const MapViewer: React.FC<MapViewerProps> = ({
           if (existingMap) {
             existingMap.flyTo({
               center: coords,
-              zoom: 10.5,
-              pitch: 60,
-              bearing: 0,
               duration: 1400,
               essential: true,
             });

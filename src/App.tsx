@@ -383,12 +383,11 @@ export const App: React.FC = () => {
         const screenY =
           typeof window !== 'undefined' ? Math.round(window.innerHeight / 2) : undefined;
 
+        // 現在の縮尺(zoom)・傾き(pitch)・方角(bearing)を維持したまま現在地へ移動
         mapInstanceRef.current?.flyTo({
           center: [longitude, latitude],
-          zoom: 10.5,
-          pitch: 60,
-          bearing: 0,
-          duration: 1800,
+          duration: 1500,
+          essential: true,
         });
         const inspected = inspectLocationValues(longitude, latitude);
         runViewTransition(() => {
