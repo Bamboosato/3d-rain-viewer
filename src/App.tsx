@@ -399,7 +399,7 @@ export const App: React.FC = () => {
   }, [showCreditModal]);
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-slate-950 select-none">
+    <div className="relative w-screen h-dvh overflow-hidden bg-slate-950 select-none">
       {/* メイン3D地図キャンバス (<div id="map" className="w-full h-full" /> を内包) */}
       <MapViewer
         activePreset={activePreset}
@@ -414,17 +414,17 @@ export const App: React.FC = () => {
       />
 
       {/* 上部ヘッダーバー */}
-      <header className="pointer-events-none absolute top-0 inset-x-0 z-20 flex flex-wrap items-center justify-between gap-2 px-4 py-3 bg-gradient-to-b from-slate-950/90 via-slate-950/45 to-transparent">
-        <div className="pointer-events-auto flex items-center gap-2.5">
-          <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-gradient-to-br from-sky-400 to-blue-600 shadow-lg shadow-sky-500/25">
-            <CloudRain className="w-5 h-5 text-white" />
+      <header className="pointer-events-none absolute top-0 inset-x-0 z-20 flex items-center justify-between gap-2 px-3 sm:px-4 py-2.5 sm:py-3 bg-gradient-to-b from-slate-950/90 via-slate-950/45 to-transparent">
+        <div className="pointer-events-auto flex items-center gap-2 min-w-0">
+          <div className="flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-br from-sky-400 to-blue-600 shadow-lg shadow-sky-500/25 shrink-0">
+            <CloudRain className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
           </div>
-          <div>
+          <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <h1 className="text-sm sm:text-base font-bold tracking-tight text-white">
+              <h1 className="text-sm sm:text-base font-bold tracking-tight text-white truncate">
                 3D RainScape
               </h1>
-              <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-400/30">
+              <span className="hidden md:inline-flex text-[10px] font-mono uppercase px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-400/30">
                 JAXA AW3D30 × {rainSource === 'jma-nowcast' ? 'JMA Nowcast' : 'JAXA GSMaP'}
               </span>
             </div>
@@ -435,7 +435,7 @@ export const App: React.FC = () => {
         </div>
 
         {/* 右上ステータス・操作ボタン群 */}
-        <div className="pointer-events-auto flex items-center gap-2">
+        <div className="pointer-events-auto flex items-center gap-1.5 sm:gap-2 shrink-0">
           <div
             title={gpuStatus.adapterInfo}
             className="hidden md:flex items-center gap-2 min-h-[38px] px-3 py-1.5 rounded-xl bg-slate-900/85 backdrop-blur-md border border-slate-700/80 text-xs font-mono"

@@ -59,8 +59,8 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
       aria-label="雨雲タイムラプスコントローラー"
       className="pointer-events-auto rounded-2xl bg-slate-900/80 backdrop-blur-md border border-slate-700/75 shadow-2xl px-3.5 py-2 text-xs text-slate-100 w-full max-w-3xl"
     >
-      {/* 1行目: 操作ボタン群・固定幅日時バッジ・データソース切替を1行に集約 (折り返し・スクロールバーなし、高さ完全固定) */}
-      <div className="flex items-center justify-between gap-1.5 whitespace-nowrap">
+      {/* 1行目: PCでは1行集約(sm:flex-nowrap)、スマホ縦画面では見切れ防止の2段構成 */}
+      <div className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-1.5 whitespace-nowrap">
         {/* 左側: 再生・コマ送り・速度・現在実況ジャンプ */}
         <div className="flex items-center gap-1 shrink-0">
           <button
