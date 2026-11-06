@@ -474,7 +474,7 @@ export const MapViewer: React.FC<MapViewerProps> = ({
   }, [baseMap]);
 
   return (
-    <div className="relative w-full h-full">
+    <div className="relative z-0 isolate w-full h-full">
       <div id="map" ref={containerRef} className="w-full h-full" />
     </div>
   );

@@ -496,20 +496,24 @@ export const App: React.FC = () => {
     );
   }, [isLocating]);
 
-  // モーダルオープン時の Escape キー対応 (a11y-debugging 準拠)
+  // モーダル・上部パネルオープン時の Escape キー対応 (a11y-debugging 準拠)
   useEffect(() => {
-    if (!showCreditModal) return;
+    if (!showCreditModal && !openTopPanel) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        runViewTransition(
-          () => setShowCreditModal(false),
-          { focusTargetSelector: '#jaxa-credit-trigger-btn' }
-        );
+        if (showCreditModal) {
+          runViewTransition(
+            () => setShowCreditModal(false),
+            { focusTargetSelector: '#jaxa-credit-trigger-btn' }
+          );
+        } else if (openTopPanel) {
+          runViewTransition(() => setOpenTopPanel(null));
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showCreditModal]);
+  }, [showCreditModal, openTopPanel]);
 
   return (
     <div className="app-viewport overflow-hidden bg-slate-950 select-none">
@@ -528,8 +532,18 @@ export const App: React.FC = () => {
         mapInstanceRef={mapInstanceRef}
       />
 
+      {/* 百名山・お気に入り／設定パネル展開中は背後の地図操作・選択をブロックし、背景タップでパネルを閉じる */}
+      {openTopPanel !== null && (
+        <div
+          id="top-panel-backdrop"
+          aria-hidden="true"
+          onClick={() => runViewTransition(() => setOpenTopPanel(null))}
+          className="fixed inset-0 z-30 pointer-events-auto bg-slate-950/20"
+        />
+      )}
+
       {/* 上部ヘッダーバー（スマホでは左側はアプリアイコンのみ表示し、右側ボタン群が画面幅に収まるよう調整） */}
-      <header className="safe-header-padding pointer-events-none absolute top-0 inset-x-0 z-20 flex items-center justify-between gap-2 bg-gradient-to-b from-slate-950/95 via-slate-950/55 to-transparent">
+      <header className="safe-header-padding pointer-events-none absolute top-0 inset-x-0 z-40 flex items-center justify-between gap-2 bg-gradient-to-b from-slate-950/95 via-slate-950/55 to-transparent">
         <div className="pointer-events-auto flex items-center gap-2 min-w-0 shrink-0">
           <div
             title="3D RainScape | リアルタイム雨雲 × 3D立体地形ビューア"
@@ -633,7 +647,7 @@ export const App: React.FC = () => {
       </header>
 
       {/* クリック地点の近傍にフローティング表示される地点インスペクター (機能B: 単一インスタンスでView Transitions固有性を保証) */}
-      <div className="pointer-events-none fixed inset-0 z-30">
+      <div className="pointer-events-none fixed inset-0 z-20">
         <Inspector
           point={inspectedPoint}
           onClose={() => runViewTransition(() => setInspectedPoint(null))}
