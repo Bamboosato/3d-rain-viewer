@@ -2,7 +2,6 @@ import React, { useMemo, useState } from 'react';
 import {
   Compass,
   Mountain,
-  CloudRain,
   ChevronUp,
   Search,
   X,
@@ -19,27 +18,17 @@ interface PresetNavProps {
   presets: PresetLocation[];
   favorites?: PresetLocation[];
   activePreset: PresetLocation;
-  activePresetRain: number | null;
+  activePresetRain?: number | null;
   onSelectPreset: (preset: PresetLocation) => void;
   onRemoveFavorite?: (id: string) => void;
   isOpen?: boolean;
   onToggleOpen?: () => void;
 }
 
-function getRainSummaryLabel(mmh: number | null): string {
-  if (mmh === null) return '確認中...';
-  if (mmh < 0.1) return '降水なし';
-  if (mmh < 1.0) return '小雨・雲域';
-  if (mmh < 5.0) return '弱い雨';
-  if (mmh < 15.0) return '本降り';
-  return '強い雨';
-}
-
 export const PresetNav: React.FC<PresetNavProps> = ({
   presets,
   favorites = [],
   activePreset,
-  activePresetRain,
   onSelectPreset,
   onRemoveFavorite,
   isOpen: controlledIsOpen,
@@ -380,47 +369,6 @@ export const PresetNav: React.FC<PresetNavProps> = ({
                     : '条件に一致する地点が見つかりませんでした。'}
                 </div>
               )}
-            </div>
-          </div>
-
-          {/* 選択中の山岳・地点概要・標高・現在の雨量 */}
-          <div className="pt-2 border-t border-slate-800/90 space-y-2">
-            <div className="flex items-baseline justify-between gap-2">
-              <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
-                <span className="text-base leading-none" aria-hidden="true">
-                  {activePreset.emoji}
-                </span>
-                <h2
-                  id="preset-active-heading"
-                  tabIndex={-1}
-                  className="vt-preset-title text-sm font-bold tracking-tight text-white outline-none"
-                >
-                  {activePreset.name}
-                </h2>
-                <span className="text-[11px] text-slate-400">({activePreset.region})</span>
-              </div>
-              <span className="text-[11px] font-medium text-sky-300 shrink-0">
-                {getRainSummaryLabel(activePresetRain)}
-              </span>
-            </div>
-
-            <p className="text-[11px] text-slate-300 leading-relaxed">
-              {activePreset.description}
-            </p>
-
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              <div className="vt-preset-elevation inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-400/30 text-amber-200 font-mono text-[11px] font-semibold">
-                <Mountain className="w-3.5 h-3.5 text-amber-400" />
-                <span>標高 {activePreset.elevation.toLocaleString()} m</span>
-              </div>
-
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-sky-500/15 border border-sky-400/30 text-sky-200 font-mono text-[11px] font-semibold">
-                <CloudRain className="w-3.5 h-3.5 text-sky-400" />
-                <span>
-                  付近の雨量:{' '}
-                  {activePresetRain !== null ? `${activePresetRain.toFixed(1)} mm/h` : '計測中...'}
-                </span>
-              </div>
             </div>
           </div>
         </div>
