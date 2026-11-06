@@ -25,9 +25,7 @@ export const LayerMenu: React.FC<LayerMenuProps> = ({
   rainSource,
   onChangeRainSource,
 }) => {
-  const [isOpen, setIsOpen] = useState<boolean>(() =>
-    typeof window !== 'undefined' ? window.innerWidth >= 768 : true
-  );
+  const [isOpen, setIsOpen] = useState<boolean>(false);
 
   const handleToggleOpen = () => {
     runViewTransition(() => {

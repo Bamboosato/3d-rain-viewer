@@ -38,6 +38,7 @@ export interface InspectorPoint {
   precipitation: number | null;
   screenX?: number;
   screenY?: number;
+  label?: string;
 }
 
 export interface WebGPUStatus {

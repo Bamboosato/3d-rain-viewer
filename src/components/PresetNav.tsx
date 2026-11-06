@@ -26,7 +26,7 @@ export const PresetNav: React.FC<PresetNavProps> = ({
   activePresetRain,
   onSelectPreset,
 }) => {
-  const [isOpen, setIsOpen] = useState<boolean>(true);
+  const [isOpen, setIsOpen] = useState<boolean>(false);
   // 初期状態は現在選択中の山岳の地域ブロックを選択状態にして一覧を見やすくする
   const [selectedArea, setSelectedArea] = useState<string>(
     activePreset.areaGroup ?? '富士山・八ヶ岳・中央アルプス'

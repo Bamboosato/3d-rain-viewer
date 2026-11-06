@@ -46,6 +46,8 @@ export const MapViewer: React.FC<MapViewerProps> = ({
   const internalMapRef = useRef<maplibregl.Map | null>(null);
   const markerRef = useRef<maplibregl.Marker | null>(null);
   const isMapLoadedRef = useRef<boolean>(false);
+  const hasUserMovedOrSelectedRef = useRef<boolean>(false);
+  const initialPresetIdRef = useRef<string>(activePreset.id);
   const latestRainOpacityRef = useRef<number>(rainOpacity);
   const latestExaggerationRef = useRef<number>(exaggeration);
   const onInspectPointRef = useRef(onInspectPoint);
@@ -70,19 +72,65 @@ export const MapViewer: React.FC<MapViewerProps> = ({
 
     registerJaxaTerrainProtocol(256);
 
+    let pendingInitialCenter: [number, number] | null = null;
+
+    // 初期表示時: 位置情報が取得できる場合は現在位置を中心に表示する
+    if (typeof navigator !== 'undefined' && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          if (disposed || hasUserMovedOrSelectedRef.current) return;
+          const coords: [number, number] = [pos.coords.longitude, pos.coords.latitude];
+          pendingInitialCenter = coords;
+          const existingMap = internalMapRef.current;
+          if (existingMap) {
+            existingMap.flyTo({
+              center: coords,
+              zoom: 10.5,
+              pitch: 60,
+              bearing: 0,
+              duration: 1400,
+              essential: true,
+            });
+          }
+        },
+        () => {
+          // 位置情報が不許可・タイムアウトの場合はフォールバック（初期プリセット）を維持
+        },
+        {
+          enableHighAccuracy: false,
+          timeout: 6000,
+          maximumAge: 300000,
+        }
+      );
+    }
+
     const setup = async () => {
       backendStatus = await initGraphicsBackend();
       if (disposed || !containerRef.current) return;
 
+      const initialPresetForMap: PresetLocation = pendingInitialCenter
+        ? {
+            ...activePreset,
+            center: pendingInitialCenter,
+            zoom: 10.5,
+            pitch: 60,
+            bearing: 0,
+          }
+        : activePreset;
+
       const map = createMapInstance(
         containerRef.current,
-        activePreset,
+        initialPresetForMap,
         backendStatus.backend
       );
       internalMapRef.current = map;
       if (mapInstanceRef) {
         mapInstanceRef.current = map;
       }
+
+      map.on('dragstart', () => {
+        hasUserMovedOrSelectedRef.current = true;
+      });
 
       map.addControl(
         new maplibregl.NavigationControl({
@@ -284,6 +332,9 @@ export const MapViewer: React.FC<MapViewerProps> = ({
 
   // プリセット変更時のスムーズな3Dカメラフライ移動
   useEffect(() => {
+    if (activePreset.id !== initialPresetIdRef.current) {
+      hasUserMovedOrSelectedRef.current = true;
+    }
     const map = internalMapRef.current;
     if (!map || !isMapLoadedRef.current) return;
 

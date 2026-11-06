@@ -101,9 +101,19 @@ export const Inspector: React.FC<InspectorProps> = ({ point, onClose }) => {
     >
       {/* ヘッダーと閉じるボタン */}
       <div className="flex items-center justify-between pb-2.5 mb-2.5 border-b border-slate-700/80">
-        <div className="flex items-center gap-1.5 font-bold text-sky-300 text-xs">
-          <MapPin className="w-4 h-4 text-sky-400 shrink-0" />
-          <span>地点インスペクター</span>
+        <div className="flex flex-col min-w-0">
+          <div className="flex items-center gap-1.5 font-bold text-sky-300 text-xs">
+            <MapPin className="w-4 h-4 text-sky-400 shrink-0" />
+            <span>地点インスペクター</span>
+          </div>
+          {point.label && (
+            <div
+              id="inspector-point-label"
+              className="text-xs font-bold text-white mt-1 truncate"
+            >
+              {point.label}
+            </div>
+          )}
         </div>
         <button
           type="button"

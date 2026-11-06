@@ -20,6 +20,7 @@ import { PRESET_LOCATIONS } from './lib/maplibreHelper';
 import {
   fetchGSMaPRainLayer,
   fetchGSMaPTimelineCatalog,
+  fetchPointElevationFromAW3D,
   formatDateToJST,
   type GSMaPRainLayerResult,
   inspectLocationValues,
@@ -333,15 +334,35 @@ export const App: React.FC = () => {
     return () => window.clearInterval(timer);
   }, [isPlaying, playbackSpeed, currentTimeIndex, timelineFrames.length, handleSelectTimeIndex]);
 
-  // 山岳プリセット切替 (View Transitions API 連動)
+  // 山岳プリセット切替 (View Transitions API 連動 + 山頂インスペクター自動表示)
   const handleSelectPreset = useCallback((preset: PresetLocation) => {
     const [lng, lat] = preset.center;
     const inspected = inspectLocationValues(lng, lat);
+    const screenX = typeof window !== 'undefined' ? Math.round(window.innerWidth / 2) : undefined;
+    const screenY = typeof window !== 'undefined' ? Math.round(window.innerHeight / 2) : undefined;
+
+    mapInstanceRef.current?.flyTo({
+      center: preset.center,
+      zoom: preset.zoom,
+      pitch: preset.pitch,
+      bearing: preset.bearing,
+      duration: 1800,
+      essential: true,
+    });
 
     runViewTransition(
       () => {
         setActivePreset(preset);
         setActivePresetRain(inspected.precipitation ?? 0);
+        setInspectedPoint({
+          lng,
+          lat,
+          elevation: preset.elevation ?? inspected.elevation,
+          precipitation: inspected.precipitation ?? 0,
+          screenX,
+          screenY,
+          label: `${preset.emoji} ${preset.name}（山頂）`,
+        });
       },
       { focusTargetSelector: '#preset-active-heading' }
     );
@@ -358,8 +379,13 @@ export const App: React.FC = () => {
   const handleJumpToCurrentLocation = useCallback(() => {
     if (!navigator.geolocation || !mapInstanceRef.current) return;
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
+      async (pos) => {
         const { longitude, latitude } = pos.coords;
+        const screenX =
+          typeof window !== 'undefined' ? Math.round(window.innerWidth / 2) : undefined;
+        const screenY =
+          typeof window !== 'undefined' ? Math.round(window.innerHeight / 2) : undefined;
+
         mapInstanceRef.current?.flyTo({
           center: [longitude, latitude],
           zoom: 10.5,
@@ -374,8 +400,22 @@ export const App: React.FC = () => {
             lat: latitude,
             elevation: inspected.elevation,
             precipitation: inspected.precipitation ?? 0,
+            screenX,
+            screenY,
+            label: '📍 現在地',
           });
         });
+
+        if (inspected.elevation === null) {
+          const fetchedElev = await fetchPointElevationFromAW3D(longitude, latitude);
+          if (fetchedElev !== null) {
+            setInspectedPoint((prev) =>
+              prev && prev.lng === longitude && prev.lat === latitude
+                ? { ...prev, elevation: fetchedElev }
+                : prev
+            );
+          }
+        }
       },
       (err) => {
         console.warn('Geolocation unavailable:', err);
