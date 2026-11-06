@@ -106,16 +106,52 @@
 }
 
 /* MapLibre コントロールのダークテーマ調和 */
+.maplibregl-ctrl-bottom-left {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: flex-start !important;
+  gap: 6px !important;
+}
+
+.maplibregl-ctrl-bottom-left .maplibregl-ctrl {
+  margin: 0 0 0 12px !important;
+}
+
+.maplibregl-ctrl-bottom-left .maplibregl-ctrl:last-child {
+  margin-bottom: 16px !important;
+}
+
 .maplibregl-ctrl-group {
   background: rgba(15, 23, 42, 0.85) !important;
   backdrop-filter: blur(8px);
   border: 1px solid rgba(51, 65, 85, 0.7) !important;
   border-radius: 12px !important;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5) !important;
   overflow: hidden;
 }
 
 .maplibregl-ctrl-group button {
   filter: invert(1) hue-rotate(180deg);
+}
+
+/* 縮尺スケールバー (500 m / 10 km 等) をダークグラスモーフィズム＆シアン目盛りに統一 */
+.maplibregl-ctrl-scale {
+  background: rgba(15, 23, 42, 0.85) !important;
+  backdrop-filter: blur(8px);
+  color: #e2e8f0 !important;
+  border-top: none !important;
+  border-left: 2px solid #38bdf8 !important;
+  border-right: 2px solid #38bdf8 !important;
+  border-bottom: 2px solid #38bdf8 !important;
+  border-radius: 4px 4px 2px 2px !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.02em !important;
+  line-height: 1.35 !important;
+  padding: 2px 6px !important;
+  text-align: center !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
 }
 
 .maplibregl-ctrl-attrib {
@@ -134,6 +170,14 @@
   .maplibregl-ctrl-bottom-left {
     bottom: 74px !important;
     left: 2px !important;
+  }
+
+  .maplibregl-ctrl-bottom-left .maplibregl-ctrl {
+    margin: 0 0 0 8px !important;
+  }
+
+  .maplibregl-ctrl-bottom-left .maplibregl-ctrl:last-child {
+    margin-bottom: 0 !important;
   }
 
   .maplibregl-ctrl-bottom-right {
