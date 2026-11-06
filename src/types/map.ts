@@ -18,6 +18,9 @@ export interface TimelineFrameItem {
 export interface PresetLocation {
   id: string;
   name: string;
+  kana?: string;
+  areaGroup?: string;
+  prefectures?: string[];
   region: string;
   emoji: string;
   elevation: number;

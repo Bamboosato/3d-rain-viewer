@@ -1,57 +1,9 @@
 import maplibregl from 'maplibre-gl';
 import type { BaseMapId, PresetLocation, RendererBackend, WebGPUStatus } from '../types/map';
 import { getAW3DTileGenerator, getJaxaEarth } from './jaxaClient';
+import { HYAKUMEIZAN_PRESETS } from './hyakumeizanData';
 
-export const PRESET_LOCATIONS: PresetLocation[] = [
-  {
-    id: 'fuji',
-    name: '富士山',
-    region: '山梨県・静岡県',
-    emoji: '🗻',
-    elevation: 3776,
-    center: [138.7274, 35.3606],
-    zoom: 9,
-    pitch: 60,
-    bearing: -20,
-    description: '日本最高峰。山頂から五合目・富士五湖周辺の雨雲の動きを確認できます。',
-  },
-  {
-    id: 'northern-alps',
-    name: '北アルプス',
-    region: '長野県・岐阜県・富山県',
-    emoji: '🏔️',
-    elevation: 3190,
-    center: [137.6475, 36.3419],
-    zoom: 9.8,
-    pitch: 62,
-    bearing: 25,
-    description: '槍ヶ岳・穂高連峰から上高地・立山エリアにかけての雨雲を確認できます。',
-  },
-  {
-    id: 'aso',
-    name: '阿蘇山',
-    region: '熊本県',
-    emoji: '🌋',
-    elevation: 1592,
-    center: [131.104, 32.8842],
-    zoom: 10.2,
-    pitch: 58,
-    bearing: -15,
-    description: '阿蘇五岳（高岳・中岳）や草千里・外輪山周辺の雨雲の動きを確認できます。',
-  },
-  {
-    id: 'tanzawa',
-    name: '丹沢山地',
-    region: '神奈川県',
-    emoji: '⛰️',
-    elevation: 1673,
-    center: [139.1628, 35.4739],
-    zoom: 10.5,
-    pitch: 60,
-    bearing: -30,
-    description: '塔ノ岳・丹沢山から大山周辺にかけて、相模湾側から入る雨雲を確認できます。',
-  },
-];
+export const PRESET_LOCATIONS: PresetLocation[] = HYAKUMEIZAN_PRESETS;
 
 export const BASE_MAP_SOURCES: Record<
   BaseMapId,

@@ -20,8 +20,8 @@ export const AW3D30_COLLECTION_URL =
 export const GSMAP_COLLECTION_URL =
   'https://s3.ap-northeast-1.wasabisys.com/je-pds/cog/v1/JAXA.EORC_GSMaP_standard.Gauge.v6_hourly/collection.json';
 
-/** 日本列島および周辺海域をカバーするBBox [西経, 南緯, 東経, 北緯] */
-export const JAPAN_RAIN_BBOX: Bbox = [126.0, 28.0, 146.0, 45.0];
+/** 日本列島および周辺海域（屋久島〜利尻島・知床）をカバーするBBox [西経, 南緯, 東経, 北緯] */
+export const JAPAN_RAIN_BBOX: Bbox = [126.0, 28.0, 146.0, 46.0];
 
 /** MapLibre ImageSource 用の4隅座標 [左上, 右上, 右下, 左下] */
 export const JAPAN_RAIN_COORDINATES: [
