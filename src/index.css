@@ -234,13 +234,13 @@
 /* スマホ表示 (< 640px) ではタイムラインバーと重ならないよう縮尺・ズームボタンを上へ退避し、押しやすいサイズを確保 */
 @media (max-width: 639px) {
   .maplibregl-ctrl-bottom-left {
-    bottom: calc(var(--safe-bottom) * 0.6 + 92px) !important;
+    bottom: calc(var(--safe-bottom) * 0.6 + 104px) !important;
     left: calc(var(--safe-left) + 2px) !important;
     padding: 0 0 0 8px !important;
   }
 
   .maplibregl-ctrl-bottom-right {
-    bottom: calc(var(--safe-bottom) * 0.6 + 92px) !important;
+    bottom: calc(var(--safe-bottom) * 0.6 + 104px) !important;
     right: calc(var(--safe-right) + 2px) !important;
   }
 
