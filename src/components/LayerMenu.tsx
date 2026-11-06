@@ -13,6 +13,8 @@ interface LayerMenuProps {
   onChangeBaseMap: (id: BaseMapId) => void;
   rainSource: RainSourceId;
   onChangeRainSource: (source: RainSourceId) => void;
+  isOpen?: boolean;
+  onToggleOpen?: () => void;
 }
 
 export const LayerMenu: React.FC<LayerMenuProps> = ({
@@ -24,48 +26,54 @@ export const LayerMenu: React.FC<LayerMenuProps> = ({
   onChangeBaseMap,
   rainSource,
   onChangeRainSource,
+  isOpen: controlledIsOpen,
+  onToggleOpen,
 }) => {
-  const [isOpen, setIsOpen] = useState<boolean>(false);
+  const [internalIsOpen, setInternalIsOpen] = useState<boolean>(false);
+  const isOpen = controlledIsOpen ?? internalIsOpen;
 
   const handleToggleOpen = () => {
+    if (onToggleOpen) {
+      onToggleOpen();
+      return;
+    }
     runViewTransition(() => {
-      setIsOpen((prev) => !prev);
+      setInternalIsOpen((prev) => !prev);
     });
   };
 
   return (
     <aside
       aria-label="レイヤー＆描画調整メニュー"
-      className="vt-layer-menu pointer-events-auto flex flex-col items-end gap-2"
+      className="vt-layer-menu pointer-events-auto relative flex items-center"
     >
-      {/* 歯車アイコン トグルボタン (タップしやすい min-h-[42px]) */}
+      {/* 歯車アイコン トグルボタン */}
       <button
         type="button"
         id="layer-menu-toggle-btn"
         onClick={handleToggleOpen}
         aria-expanded={isOpen}
         aria-controls="layer-menu-panel"
-        className="inline-flex items-center gap-2 min-h-[40px] px-3 py-1.5 rounded-2xl bg-slate-900/90 hover:bg-slate-800/95 backdrop-blur-md border border-slate-700/80 shadow-xl text-xs font-semibold text-slate-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+        className="inline-flex items-center gap-1.5 min-h-[38px] px-2.5 sm:px-3 py-1.5 rounded-xl bg-slate-900/85 hover:bg-slate-800/95 backdrop-blur-md border border-slate-700/80 shadow-lg text-xs font-semibold text-slate-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
       >
         <Settings
-          className={`w-4 h-4 text-sky-400 transition-transform duration-300 ${
+          className={`w-3.5 h-3.5 text-sky-400 transition-transform duration-300 shrink-0 ${
             isOpen ? 'rotate-90' : 'rotate-0'
           }`}
         />
-        <span className="hidden sm:inline">レイヤー＆描画調整</span>
-        <span className="sm:hidden">設定</span>
+        <span className="hidden sm:inline">表示調整</span>
         <ChevronUp
-          className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${
+          className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 shrink-0 ${
             isOpen ? 'rotate-0' : 'rotate-180'
           }`}
         />
       </button>
 
-      {/* 展開パネル本体 */}
+      {/* 展開パネル本体（右上ツールバー直下に固定展開） */}
       {isOpen && (
         <div
           id="layer-menu-panel"
-          className="rounded-2xl bg-slate-900/90 backdrop-blur-md border border-slate-700/80 shadow-2xl p-3.5 text-xs text-slate-100 w-72 space-y-2.5 max-h-[calc(100vh-22rem)] overflow-y-auto"
+          className="fixed top-14 right-3 sm:right-4 z-30 rounded-2xl bg-slate-900/90 backdrop-blur-md border border-slate-700/80 shadow-2xl p-3.5 text-xs text-slate-100 w-72 space-y-2.5 max-h-[calc(100vh-12rem)] overflow-y-auto"
         >
           {/* 0. 雨雲データソース切り替え (リアルタイム気象庁ナウキャスト ⇄ 衛星確定値JAXA GSMaP) */}
           <div>

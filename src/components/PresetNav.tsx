@@ -9,6 +9,8 @@ interface PresetNavProps {
   activePreset: PresetLocation;
   activePresetRain: number | null;
   onSelectPreset: (preset: PresetLocation) => void;
+  isOpen?: boolean;
+  onToggleOpen?: () => void;
 }
 
 function getRainSummaryLabel(mmh: number | null): string {
@@ -25,8 +27,11 @@ export const PresetNav: React.FC<PresetNavProps> = ({
   activePreset,
   activePresetRain,
   onSelectPreset,
+  isOpen: controlledIsOpen,
+  onToggleOpen,
 }) => {
-  const [isOpen, setIsOpen] = useState<boolean>(false);
+  const [internalIsOpen, setInternalIsOpen] = useState<boolean>(false);
+  const isOpen = controlledIsOpen ?? internalIsOpen;
   // 初期状態は現在選択中の山岳の地域ブロックを選択状態にして一覧を見やすくする
   const [selectedArea, setSelectedArea] = useState<string>(
     activePreset.areaGroup ?? '富士山・八ヶ岳・中央アルプス'
@@ -35,8 +40,12 @@ export const PresetNav: React.FC<PresetNavProps> = ({
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   const handleToggleOpen = () => {
+    if (onToggleOpen) {
+      onToggleOpen();
+      return;
+    }
     runViewTransition(() => {
-      setIsOpen((prev) => !prev);
+      setInternalIsOpen((prev) => !prev);
     });
   };
 
@@ -100,7 +109,7 @@ export const PresetNav: React.FC<PresetNavProps> = ({
   return (
     <section
       aria-label="日本百名山プリセット切り替えナビゲーション"
-      className="pointer-events-auto flex flex-col items-start gap-2 w-[calc(100vw-2rem)] sm:w-[26rem] max-w-md"
+      className="pointer-events-auto relative flex items-center"
     >
       {/* 表示／非表示 トグルボタン */}
       <button
@@ -109,26 +118,25 @@ export const PresetNav: React.FC<PresetNavProps> = ({
         onClick={handleToggleOpen}
         aria-expanded={isOpen}
         aria-controls="preset-nav-panel"
-        className="inline-flex items-center gap-1.5 min-h-[40px] px-3 py-1.5 rounded-2xl bg-slate-900/85 hover:bg-slate-800/95 backdrop-blur-md border border-slate-700/80 shadow-xl text-xs font-semibold text-slate-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+        className="inline-flex items-center gap-1.5 min-h-[38px] px-2.5 sm:px-3 py-1.5 rounded-xl bg-slate-900/85 hover:bg-slate-800/95 backdrop-blur-md border border-slate-700/80 shadow-lg text-xs font-semibold text-slate-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
       >
-        <Compass className="w-4 h-4 text-sky-400 shrink-0" />
-        <span className="hidden sm:inline">日本百名山プリセット</span>
-        <span className="sm:hidden">百名山</span>
-        <span className="px-2 py-0.5 rounded-lg bg-slate-800/90 border border-slate-700 text-[11px] font-medium text-sky-200">
+        <Compass className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+        <span className="hidden md:inline">百名山プリセット</span>
+        <span className="px-1.5 py-0.5 rounded-md bg-slate-800/90 border border-slate-700 text-[11px] font-medium text-sky-200 max-w-[7.5rem] sm:max-w-none truncate">
           {activePreset.emoji} {activePreset.name}
         </span>
         <ChevronUp
-          className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${
+          className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 shrink-0 ${
             isOpen ? 'rotate-0' : 'rotate-180'
           }`}
         />
       </button>
 
-      {/* 展開パネル本体（地域・都道府県階層セレクタ ＋ 山岳リスト ＋ 選択中の山岳詳細） */}
+      {/* 展開パネル本体（右上ツールバー直下に固定展開） */}
       {isOpen && (
         <div
           id="preset-nav-panel"
-          className="vt-preset-card rounded-2xl bg-slate-900/85 backdrop-blur-md border border-slate-700/80 shadow-2xl p-3 text-slate-100 w-full space-y-2.5"
+          className="vt-preset-card fixed top-14 right-3 sm:right-4 z-30 rounded-2xl bg-slate-900/90 backdrop-blur-md border border-slate-700/80 shadow-2xl p-3 text-slate-100 w-[calc(100vw-1.5rem)] sm:w-[26rem] max-w-md space-y-2.5"
         >
           {/* 階層ステップ1: 地域ブロック ➔ 都道府県 絞り込みセレクト */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">

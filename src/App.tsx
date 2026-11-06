@@ -1,9 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type maplibregl from 'maplibre-gl';
 import {
-  Activity,
   CloudRain,
-  Cpu,
   Download,
   Info,
   LocateFixed,
@@ -61,6 +59,7 @@ export const App: React.FC = () => {
 
   const [inspectedPoint, setInspectedPoint] = useState<InspectorPoint | null>(null);
   const [showCreditModal, setShowCreditModal] = useState<boolean>(false);
+  const [openTopPanel, setOpenTopPanel] = useState<'preset' | 'layer' | null>(null);
   const [installPromptEvent, setInstallPromptEvent] = useState<
     (Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> }) | null
   >(null);
@@ -83,7 +82,7 @@ export const App: React.FC = () => {
     setInstallPromptEvent(null);
   }, [installPromptEvent]);
 
-  const [gpuStatus, setGpuStatus] = useState<WebGPUStatus>({
+  const [, setGpuStatus] = useState<WebGPUStatus>({
     backend: 'webgpu',
     webgpuAvailable: true,
     adapterInfo: 'WebGPU 初期化中...',
@@ -453,113 +452,101 @@ export const App: React.FC = () => {
         mapInstanceRef={mapInstanceRef}
       />
 
-      {/* 上部ヘッダーバー */}
+      {/* 上部ヘッダーバー（左: タイトル / 右: 操作ボタン群を一列に集約） */}
       <header className="pointer-events-none absolute top-0 inset-x-0 z-20 flex items-center justify-between gap-2 px-3 sm:px-4 py-2.5 sm:py-3 bg-gradient-to-b from-slate-950/90 via-slate-950/45 to-transparent">
-        <div className="pointer-events-auto flex items-center gap-2 min-w-0">
+        <div className="pointer-events-auto flex items-center gap-2 min-w-0 shrink-0">
           <div className="flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-br from-sky-400 to-blue-600 shadow-lg shadow-sky-500/25 shrink-0">
             <CloudRain className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
           </div>
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h1 className="text-sm sm:text-base font-bold tracking-tight text-white truncate">
-                3D RainScape
-              </h1>
-              <span className="hidden md:inline-flex text-[10px] font-mono uppercase px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-400/30">
-                JAXA AW3D30 × {rainSource === 'jma-nowcast' ? 'JMA Nowcast' : 'JAXA GSMaP'}
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-400 hidden sm:block">
-              リアルタイム雨雲 (気象庁ナウキャスト / JAXA GSMaP) × 全球3D標高モデル (AW3D30) 立体地形ビューア
+            <h1 className="text-sm sm:text-base font-bold tracking-tight text-white truncate">
+              3D RainScape
+            </h1>
+            <p className="text-[11px] text-slate-400 hidden xl:block">
+              リアルタイム雨雲 × 3D立体地形ビューア
             </p>
           </div>
         </div>
 
-        {/* 右上ステータス・操作ボタン群 */}
+        {/* 右上操作ボタン群（百名山プリセット・表示調整・現在地・アプリ追加・情報アイコンを一列に集約） */}
         <div className="pointer-events-auto flex items-center gap-1.5 sm:gap-2 shrink-0">
-          <div
-            title={gpuStatus.adapterInfo}
-            className="hidden md:flex items-center gap-2 min-h-[38px] px-3 py-1.5 rounded-xl bg-slate-900/85 backdrop-blur-md border border-slate-700/80 text-xs font-mono"
-          >
-            <Cpu
-              className={`w-3.5 h-3.5 ${
-                gpuStatus.backend === 'webgpu' ? 'text-emerald-400' : 'text-amber-400'
-              }`}
-            />
-            <span className="text-slate-200 font-semibold uppercase">
-              {gpuStatus.backend === 'webgpu' ? 'WebGPU' : 'WebGL2'}
-            </span>
-            <span className="text-slate-600">|</span>
-            <Activity className="w-3.5 h-3.5 text-sky-400" />
-            <span className="text-sky-300 font-semibold">{gpuStatus.fps} FPS</span>
-          </div>
+          <PresetNav
+            presets={PRESET_LOCATIONS}
+            activePreset={activePreset}
+            activePresetRain={activePresetRain}
+            onSelectPreset={handleSelectPreset}
+            isOpen={openTopPanel === 'preset'}
+            onToggleOpen={() =>
+              runViewTransition(() =>
+                setOpenTopPanel((prev) => (prev === 'preset' ? null : 'preset'))
+              )
+            }
+          />
+
+          <LayerMenu
+            exaggeration={exaggeration}
+            onChangeExaggeration={setExaggeration}
+            rainOpacity={rainOpacity}
+            onChangeRainOpacity={setRainOpacity}
+            baseMap={baseMap}
+            onChangeBaseMap={setBaseMap}
+            rainSource={rainSource}
+            onChangeRainSource={handleChangeRainSource}
+            isOpen={openTopPanel === 'layer'}
+            onToggleOpen={() =>
+              runViewTransition(() =>
+                setOpenTopPanel((prev) => (prev === 'layer' ? null : 'layer'))
+              )
+            }
+          />
 
           {installPromptEvent && (
             <button
               id="pwa-install-btn"
               type="button"
               onClick={handleInstallPwa}
-              className="inline-flex items-center gap-1.5 min-h-[38px] px-3 py-1.5 rounded-xl bg-emerald-500/25 hover:bg-emerald-500/35 backdrop-blur-md border border-emerald-400/50 text-xs font-semibold text-emerald-200 transition-colors cursor-pointer"
+              title="ホーム画面にアプリを追加"
+              className="inline-flex items-center gap-1.5 min-h-[38px] px-2.5 sm:px-3 py-1.5 rounded-xl bg-emerald-500/25 hover:bg-emerald-500/35 backdrop-blur-md border border-emerald-400/50 shadow-lg text-xs font-semibold text-emerald-200 transition-colors cursor-pointer"
             >
-              <Download className="w-3.5 h-3.5 text-emerald-400" />
-              <span>アプリ追加</span>
+              <Download className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <span className="hidden md:inline">アプリ追加</span>
             </button>
           )}
 
           <button
             type="button"
             onClick={handleJumpToCurrentLocation}
-            className="inline-flex items-center gap-1.5 min-h-[38px] px-3 py-1.5 rounded-xl bg-slate-900/85 hover:bg-slate-800 backdrop-blur-md border border-slate-700/80 text-xs text-slate-200 transition-colors cursor-pointer"
+            title="現在地へ移動"
+            aria-label="現在地へ移動"
+            className="inline-flex items-center gap-1.5 min-h-[38px] px-2.5 sm:px-3 py-1.5 rounded-xl bg-slate-900/85 hover:bg-slate-800 backdrop-blur-md border border-slate-700/80 shadow-lg text-xs font-semibold text-slate-200 transition-colors cursor-pointer"
           >
-            <LocateFixed className="w-3.5 h-3.5 text-sky-400" />
-            <span className="hidden sm:inline">現在地</span>
+            <LocateFixed className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+            <span className="hidden md:inline">現在地</span>
           </button>
 
           <button
             id="jaxa-credit-trigger-btn"
             type="button"
+            title="データソース・ライセンス情報"
+            aria-label="データソース・ライセンス情報を開く"
             onClick={() =>
               runViewTransition(
                 () => setShowCreditModal(true),
                 { focusTargetSelector: '#jaxa-credit-close-btn' }
               )
             }
-            className="inline-flex items-center gap-1.5 min-h-[38px] px-3 py-1.5 rounded-xl bg-slate-900/85 hover:bg-slate-800 backdrop-blur-md border border-slate-700/80 text-xs text-slate-200 transition-colors cursor-pointer"
+            className="inline-flex items-center justify-center w-[38px] h-[38px] rounded-xl bg-slate-900/85 hover:bg-slate-800 backdrop-blur-md border border-slate-700/80 shadow-lg text-slate-200 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
           >
-            <Info className="w-3.5 h-3.5 text-sky-400" />
-            <span className="hidden sm:inline">データソース情報</span>
+            <Info className="w-4 h-4 text-sky-400" />
           </button>
         </div>
       </header>
-
-      {/* 左上: 山岳プリセットボタン群 & アクティブ標高バッジ */}
-      <div className="pointer-events-none absolute top-16 left-4 z-10 flex flex-col gap-3 max-w-[calc(100vw-2rem)]">
-        <PresetNav
-          presets={PRESET_LOCATIONS}
-          activePreset={activePreset}
-          activePresetRain={activePresetRain}
-          onSelectPreset={handleSelectPreset}
-        />
-      </div>
 
       {/* クリック地点の近傍にフローティング表示される地点インスペクター (機能B: 単一インスタンスでView Transitions固有性を保証) */}
       <div className="pointer-events-none fixed inset-0 z-30">
         <Inspector
           point={inspectedPoint}
           onClose={() => runViewTransition(() => setInspectedPoint(null))}
-        />
-      </div>
-
-      {/* 右上: 歯車アイコン展開式 レイヤー＆描画調整メニュー (機能C) */}
-      <div className="pointer-events-none absolute top-16 right-4 z-20">
-        <LayerMenu
-          exaggeration={exaggeration}
-          onChangeExaggeration={setExaggeration}
-          rainOpacity={rainOpacity}
-          onChangeRainOpacity={setRainOpacity}
-          baseMap={baseMap}
-          onChangeBaseMap={setBaseMap}
-          rainSource={rainSource}
-          onChangeRainSource={handleChangeRainSource}
         />
       </div>
 
@@ -652,6 +639,39 @@ export const App: React.FC = () => {
                 <p className="text-[11px] text-slate-400">
                   GPM主衛星・コンステレーション衛星と世界中の地上雨量計（Gauge）を統合補正した高精度1時間降水強度（mm/h）データです（雨量計補正のため観測から約3日後に公開）。
                 </p>
+              </div>
+
+              <div className="rounded-xl bg-slate-950/80 border border-slate-800 p-3 space-y-1.5">
+                <div className="font-semibold text-slate-200">
+                  4. 背景地図タイル・3D描画エンジン
+                </div>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400">
+                  <a
+                    href="https://www.openstreetmap.org/copyright"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-sky-400 hover:underline"
+                  >
+                    &copy; OpenStreetMap contributors
+                  </a>
+                  <a
+                    href="https://maps.gsi.go.jp/development/ichiran.html"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-sky-400 hover:underline"
+                  >
+                    国土地理院 地理院タイル
+                  </a>
+                  <span>Tiles &copy; Esri / Maxar</span>
+                  <a
+                    href="https://maplibre.org/"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-sky-400 hover:underline"
+                  >
+                    MapLibre GL JS
+                  </a>
+                </div>
               </div>
             </div>
 

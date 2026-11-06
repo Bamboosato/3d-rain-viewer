@@ -248,6 +248,7 @@ export function createMapInstance(
     minZoom: 4,
     maxZoom: 15,
     fadeDuration: 0,
+    attributionControl: false,
   };
 
   try {
