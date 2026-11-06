@@ -67,6 +67,7 @@ export const App: React.FC = () => {
   const [favorites, setFavorites] = useState<PresetLocation[]>(() => loadFavoriteLocations());
   const [showCreditModal, setShowCreditModal] = useState<boolean>(false);
   const [openTopPanel, setOpenTopPanel] = useState<'preset' | 'layer' | null>(null);
+  const [isLocating, setIsLocating] = useState<boolean>(false);
   const [installPromptEvent, setInstallPromptEvent] = useState<
     (Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> }) | null
   >(null);
@@ -440,11 +441,13 @@ export const App: React.FC = () => {
     });
   }, []);
 
-  // GPS現在地へジャンプ
+  // GPS現在地へジャンプ（取得中の連打によるスマホ画面のダブルタップ拡大を抑止）
   const handleJumpToCurrentLocation = useCallback(() => {
-    if (!navigator.geolocation || !mapInstanceRef.current) return;
+    if (!navigator.geolocation || !mapInstanceRef.current || isLocating) return;
+    setIsLocating(true);
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
+        setIsLocating(false);
         const { longitude, latitude } = pos.coords;
         const screenX =
           typeof window !== 'undefined' ? Math.round(window.innerWidth / 2) : undefined;
@@ -482,10 +485,16 @@ export const App: React.FC = () => {
         }
       },
       (err) => {
+        setIsLocating(false);
         console.warn('Geolocation unavailable:', err);
+      },
+      {
+        enableHighAccuracy: false,
+        timeout: 8000,
+        maximumAge: 60000,
       }
     );
-  }, []);
+  }, [isLocating]);
 
   // モーダルオープン時の Escape キー対応 (a11y-debugging 準拠)
   useEffect(() => {
@@ -589,12 +598,20 @@ export const App: React.FC = () => {
           <button
             type="button"
             onClick={handleJumpToCurrentLocation}
+            onDoubleClick={(e) => e.preventDefault()}
+            disabled={isLocating}
             title="現在地へ移動"
             aria-label="現在地へ移動"
-            className="inline-flex items-center justify-center gap-1.5 w-[38px] h-[38px] sm:w-auto sm:min-h-[42px] sm:px-3.5 py-1.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 backdrop-blur-md border border-slate-700/80 shadow-lg text-xs sm:text-sm font-bold text-slate-100 transition-colors cursor-pointer shrink-0"
+            className={`inline-flex items-center justify-center gap-1.5 w-[38px] h-[38px] sm:w-auto sm:min-h-[42px] sm:px-3.5 py-1.5 rounded-xl backdrop-blur-md border shadow-lg text-xs sm:text-sm font-bold transition-colors cursor-pointer shrink-0 ${
+              isLocating
+                ? 'bg-sky-500/25 border-sky-400/60 text-sky-200'
+                : 'bg-slate-900/90 hover:bg-slate-800 border-slate-700/80 text-slate-100'
+            }`}
           >
-            <LocateFixed className="w-4 h-4 text-sky-400 shrink-0" />
-            <span className="hidden sm:inline">現在地</span>
+            <LocateFixed
+              className={`w-4 h-4 text-sky-400 shrink-0 ${isLocating ? 'animate-spin' : ''}`}
+            />
+            <span className="hidden sm:inline">{isLocating ? '取得中...' : '現在地'}</span>
           </button>
 
           <button

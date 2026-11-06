@@ -269,7 +269,7 @@ export const Inspector: React.FC<InspectorProps> = ({
                 placeholder="例: 自宅、上高地、キャンプ場"
                 aria-label="お気に入り地点の名前"
                 autoFocus
-                className="w-full rounded-xl bg-slate-950/90 border border-amber-400/50 px-3 py-1.5 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                className="w-full rounded-xl bg-slate-950/90 border border-amber-400/50 px-3 py-1.5 text-base sm:text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-400"
               />
               <div className="flex items-center gap-1.5">
                 <button

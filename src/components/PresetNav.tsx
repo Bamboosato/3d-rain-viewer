@@ -205,7 +205,7 @@ export const PresetNav: React.FC<PresetNavProps> = ({
                   aria-label="地域・山域を選択"
                   value={selectedArea}
                   onChange={(e) => handleAreaChange(e.target.value)}
-                  className="w-full rounded-xl bg-slate-950/90 border border-slate-700/90 px-3 py-2 text-sm sm:text-xs text-slate-100 font-medium focus:outline-none focus:ring-2 focus:ring-sky-400 cursor-pointer"
+                  className="w-full rounded-xl bg-slate-950/90 border border-slate-700/90 px-3 py-2 text-base sm:text-xs text-slate-100 font-medium focus:outline-none focus:ring-2 focus:ring-sky-400 cursor-pointer"
                 >
                   <option value="ALL">すべて表示 ({presets.length}座)</option>
                   <option value={FAVORITE_AREA_GROUP}>
@@ -229,7 +229,7 @@ export const PresetNav: React.FC<PresetNavProps> = ({
                   aria-label="都道府県で絞り込む"
                   value={selectedPrefecture}
                   onChange={(e) => setSelectedPrefecture(e.target.value)}
-                  className="w-full rounded-xl bg-slate-950/90 border border-slate-700/90 px-3 py-2 text-sm sm:text-xs text-slate-100 font-medium focus:outline-none focus:ring-2 focus:ring-sky-400 cursor-pointer"
+                  className="w-full rounded-xl bg-slate-950/90 border border-slate-700/90 px-3 py-2 text-base sm:text-xs text-slate-100 font-medium focus:outline-none focus:ring-2 focus:ring-sky-400 cursor-pointer"
                 >
                   <option value="ALL">
                     すべての都道府県 ({areaFilteredPresets.length}座)
@@ -254,7 +254,7 @@ export const PresetNav: React.FC<PresetNavProps> = ({
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="山名・よみがな・お気に入り名で検索"
               aria-label="百名山やお気に入り地点を検索"
-              className="w-full rounded-xl bg-slate-950/75 border border-slate-800 focus:border-sky-400/70 pl-9 pr-8 py-2 text-sm sm:text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-400"
+              className="w-full rounded-xl bg-slate-950/75 border border-slate-800 focus:border-sky-400/70 pl-9 pr-8 py-2 text-base sm:text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-400"
             />
             {searchQuery.length > 0 && (
               <button

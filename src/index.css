@@ -61,6 +61,16 @@
     overflow: hidden;
     background-color: #020617;
     accent-color: var(--brand-color);
+    touch-action: manipulation;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  button,
+  input,
+  select,
+  label,
+  a {
+    touch-action: manipulation;
   }
 }
 
@@ -74,6 +84,7 @@
   width: 100%;
   height: 100%;
   overflow: hidden;
+  touch-action: manipulation;
 }
 
 /* お気に入り地点の地図上マーカー（ズームレベル連動: 広域=★のみ / 詳細=★＋地点名） */
