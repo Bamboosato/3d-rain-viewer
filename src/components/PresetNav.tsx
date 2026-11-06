@@ -118,15 +118,15 @@ export const PresetNav: React.FC<PresetNavProps> = ({
         onClick={handleToggleOpen}
         aria-expanded={isOpen}
         aria-controls="preset-nav-panel"
-        className="inline-flex items-center gap-1.5 min-h-[38px] px-2.5 sm:px-3 py-1.5 rounded-xl bg-slate-900/85 hover:bg-slate-800/95 backdrop-blur-md border border-slate-700/80 shadow-lg text-xs font-semibold text-slate-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+        className="inline-flex items-center gap-1.5 min-h-[40px] sm:min-h-[42px] px-3 sm:px-3.5 py-1.5 rounded-xl bg-slate-900/90 hover:bg-slate-800/95 backdrop-blur-md border border-slate-700/80 shadow-lg text-xs sm:text-sm font-bold text-slate-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
       >
-        <Compass className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-        <span className="hidden md:inline">百名山プリセット</span>
-        <span className="px-1.5 py-0.5 rounded-md bg-slate-800/90 border border-slate-700 text-[11px] font-medium text-sky-200 max-w-[7.5rem] sm:max-w-none truncate">
+        <Compass className="w-4 h-4 text-sky-400 shrink-0" />
+        <span className="hidden md:inline">百名山</span>
+        <span className="px-2 py-0.5 rounded-lg bg-slate-800/90 border border-slate-700 text-xs font-semibold text-sky-200 max-w-[9rem] sm:max-w-none truncate">
           {activePreset.emoji} {activePreset.name}
         </span>
         <ChevronUp
-          className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 shrink-0 ${
+          className={`w-4 h-4 text-slate-400 transition-transform duration-200 shrink-0 ${
             isOpen ? 'rotate-0' : 'rotate-180'
           }`}
         />
@@ -139,10 +139,10 @@ export const PresetNav: React.FC<PresetNavProps> = ({
           className="vt-preset-card safe-top-dropdown fixed z-30 rounded-2xl bg-slate-900/90 backdrop-blur-md border border-slate-700/80 shadow-2xl p-3 text-slate-100 w-[calc(100vw-1.5rem)] sm:w-[26rem] max-w-md space-y-2.5 overflow-y-auto"
         >
           {/* 階層ステップ1: 地域ブロック ➔ 都道府県 絞り込みセレクト */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-            <label className="flex flex-col gap-1 text-[10px] text-slate-400 font-medium">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <label className="flex flex-col gap-1 text-xs text-slate-300 font-semibold">
               <span className="inline-flex items-center gap-1 px-0.5">
-                <MapPin className="w-3 h-3 text-sky-400" />
+                <MapPin className="w-3.5 h-3.5 text-sky-400" />
                 <span>1. 地域・山域を選ぶ</span>
               </span>
               <select
@@ -150,7 +150,7 @@ export const PresetNav: React.FC<PresetNavProps> = ({
                 aria-label="地域・山域を選択"
                 value={selectedArea}
                 onChange={(e) => handleAreaChange(e.target.value)}
-                className="w-full rounded-xl bg-slate-950/90 border border-slate-700/90 px-2.5 py-1.5 text-xs text-slate-100 font-medium focus:outline-none focus:ring-2 focus:ring-sky-400 cursor-pointer"
+                className="w-full rounded-xl bg-slate-950/90 border border-slate-700/90 px-3 py-2 text-sm sm:text-xs text-slate-100 font-medium focus:outline-none focus:ring-2 focus:ring-sky-400 cursor-pointer"
               >
                 <option value="ALL">すべて表示 ({presets.length}座)</option>
                 {AREA_GROUPS.map((area) => (
@@ -161,9 +161,9 @@ export const PresetNav: React.FC<PresetNavProps> = ({
               </select>
             </label>
 
-            <label className="flex flex-col gap-1 text-[10px] text-slate-400 font-medium">
+            <label className="flex flex-col gap-1 text-xs text-slate-300 font-semibold">
               <span className="inline-flex items-center gap-1 px-0.5">
-                <Compass className="w-3 h-3 text-emerald-400" />
+                <Compass className="w-3.5 h-3.5 text-emerald-400" />
                 <span>2. 都道府県で絞り込む</span>
               </span>
               <select
@@ -171,7 +171,7 @@ export const PresetNav: React.FC<PresetNavProps> = ({
                 aria-label="都道府県で絞り込む"
                 value={selectedPrefecture}
                 onChange={(e) => setSelectedPrefecture(e.target.value)}
-                className="w-full rounded-xl bg-slate-950/90 border border-slate-700/90 px-2.5 py-1.5 text-xs text-slate-100 font-medium focus:outline-none focus:ring-2 focus:ring-sky-400 cursor-pointer"
+                className="w-full rounded-xl bg-slate-950/90 border border-slate-700/90 px-3 py-2 text-sm sm:text-xs text-slate-100 font-medium focus:outline-none focus:ring-2 focus:ring-sky-400 cursor-pointer"
               >
                 <option value="ALL">
                   すべての都道府県 ({areaFilteredPresets.length}座)
@@ -187,31 +187,31 @@ export const PresetNav: React.FC<PresetNavProps> = ({
 
           {/* クイック検索バー（山名・よみがな・都道府県） */}
           <div className="relative flex items-center">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 pointer-events-none" />
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 pointer-events-none" />
             <input
               id="preset-search-input"
               type="search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="山名・よみがな・都道府県で検索 (例: 槍ヶ岳, やり, 北海道)"
+              placeholder="山名・よみがな・都道府県で検索 (例: 槍ヶ岳, やり)"
               aria-label="百名山を山名やよみがなで検索"
-              className="w-full rounded-xl bg-slate-950/75 border border-slate-800 focus:border-sky-400/70 pl-8 pr-7 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-400"
+              className="w-full rounded-xl bg-slate-950/75 border border-slate-800 focus:border-sky-400/70 pl-9 pr-8 py-2 text-sm sm:text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-400"
             />
             {searchQuery.length > 0 && (
               <button
                 type="button"
                 aria-label="検索キーワードをクリア"
                 onClick={() => setSearchQuery('')}
-                className="absolute right-2 p-0.5 rounded-md text-slate-400 hover:text-white cursor-pointer"
+                className="absolute right-2.5 p-1 rounded-md text-slate-400 hover:text-white cursor-pointer"
               >
-                <X className="w-3.5 h-3.5" />
+                <X className="w-4 h-4" />
               </button>
             )}
           </div>
 
           {/* 階層ステップ2: 絞り込まれた山岳選択グリッド */}
-          <div className="space-y-1">
-            <div className="flex items-center justify-between text-[10px] text-slate-400 px-0.5">
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-xs text-slate-300 font-semibold px-0.5">
               <span>
                 3. 山岳を選択 ({filteredPresets.length} / {presets.length}座)
               </span>
@@ -233,7 +233,7 @@ export const PresetNav: React.FC<PresetNavProps> = ({
               id="preset-mountain-list"
               role="group"
               aria-label="山岳選択リスト"
-              className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-40 overflow-y-auto pr-1"
+              className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-48 overflow-y-auto pr-1"
             >
               {filteredPresets.map((preset) => {
                 const isSelected = preset.id === activePreset.id;
@@ -246,10 +246,10 @@ export const PresetNav: React.FC<PresetNavProps> = ({
                       onSelectPreset(preset);
                     }}
                     aria-pressed={isSelected}
-                    className={`relative flex flex-col items-start justify-center px-2.5 py-1.5 rounded-xl text-left transition-colors cursor-pointer select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 ${
+                    className={`relative flex flex-col items-start justify-center px-3 py-2 rounded-xl text-left transition-colors cursor-pointer select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 ${
                       isSelected
-                        ? 'text-white font-semibold shadow-md'
-                        : 'text-slate-200 hover:text-white hover:bg-slate-800/80 bg-slate-800/45 border border-slate-800/80'
+                        ? 'text-white font-bold shadow-md'
+                        : 'text-slate-100 hover:text-white hover:bg-slate-800/80 bg-slate-800/50 border border-slate-700/80'
                     }`}
                   >
                     {isSelected && (
@@ -258,12 +258,12 @@ export const PresetNav: React.FC<PresetNavProps> = ({
                         aria-hidden="true"
                       />
                     )}
-                    <div className="flex items-center gap-1 w-full min-w-0">
-                      <span className="text-xs leading-none shrink-0">{preset.emoji}</span>
-                      <span className="text-xs truncate">{preset.name}</span>
+                    <div className="flex items-center gap-1.5 w-full min-w-0">
+                      <span className="text-sm leading-none shrink-0">{preset.emoji}</span>
+                      <span className="text-sm sm:text-xs font-semibold truncate">{preset.name}</span>
                     </div>
                     <div
-                      className={`text-[10px] font-mono truncate w-full ${
+                      className={`text-xs sm:text-[10px] font-mono truncate w-full mt-0.5 ${
                         isSelected ? 'text-sky-100' : 'text-slate-400'
                       }`}
                     >

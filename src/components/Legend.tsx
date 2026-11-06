@@ -111,20 +111,20 @@ export const Legend: React.FC<LegendProps> = ({
         onClick={handleToggleOpen}
         aria-expanded={isOpen}
         aria-controls="legend-panel"
-        className="inline-flex items-center gap-2 min-h-[38px] px-3 py-1.5 rounded-2xl bg-slate-900/85 hover:bg-slate-800/95 backdrop-blur-md border border-slate-700/80 shadow-xl text-xs font-semibold text-slate-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+        className="inline-flex items-center gap-2 min-h-[40px] sm:min-h-[42px] px-3.5 py-1.5 rounded-2xl bg-slate-900/90 hover:bg-slate-800/95 backdrop-blur-md border border-slate-700/80 shadow-xl text-xs sm:text-sm font-bold text-slate-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
       >
-        <CloudRain className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+        <CloudRain className="w-4 h-4 text-sky-400 shrink-0" />
         <span>降雨強度</span>
         <span
           aria-hidden="true"
-          className="w-10 h-2 rounded-full border border-slate-600/80 shrink-0"
+          className="w-11 h-2.5 rounded-full border border-slate-600/80 shrink-0"
           style={{
             background:
               'linear-gradient(90deg, #38bdf8 0%, #218cff 30%, #22c55e 55%, #facc15 75%, #ef4444 90%, #b40068 100%)',
           }}
         />
         <ChevronDown
-          className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${
+          className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${
             isOpen ? 'rotate-0' : 'rotate-180'
           }`}
         />
