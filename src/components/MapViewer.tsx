@@ -64,6 +64,7 @@ export const MapViewer: React.FC<MapViewerProps> = ({
     let rafId = 0;
     let frameCount = 0;
     let lastFpsTime = performance.now();
+    let resizeObserver: ResizeObserver | null = null;
     let backendStatus: Omit<WebGPUStatus, 'fps'> = {
       backend: 'webgpu',
       webgpuAvailable: true,
@@ -126,6 +127,15 @@ export const MapViewer: React.FC<MapViewerProps> = ({
       internalMapRef.current = map;
       if (mapInstanceRef) {
         mapInstanceRef.current = map;
+      }
+
+      if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
+        resizeObserver = new ResizeObserver(() => {
+          if (!disposed) {
+            map.resize();
+          }
+        });
+        resizeObserver.observe(containerRef.current);
       }
 
       map.on('dragstart', () => {
@@ -248,6 +258,7 @@ export const MapViewer: React.FC<MapViewerProps> = ({
     return () => {
       disposed = true;
       cancelAnimationFrame(rafId);
+      resizeObserver?.disconnect();
       isMapLoadedRef.current = false;
       if (markerRef.current) {
         markerRef.current.remove();

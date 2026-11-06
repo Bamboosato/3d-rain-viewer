@@ -436,7 +436,7 @@ export const App: React.FC = () => {
   }, [showCreditModal]);
 
   return (
-    <div className="relative w-screen h-dvh overflow-hidden bg-slate-950 select-none">
+    <div className="app-viewport overflow-hidden bg-slate-950 select-none">
       {/* メイン3D地図キャンバス (<div id="map" className="w-full h-full" /> を内包) */}
       <MapViewer
         activePreset={activePreset}
