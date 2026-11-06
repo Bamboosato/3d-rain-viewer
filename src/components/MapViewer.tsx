@@ -21,6 +21,7 @@ import {
 
 interface MapViewerProps {
   activePreset: PresetLocation;
+  favorites?: PresetLocation[];
   exaggeration: number;
   rainOpacity: number;
   baseMap: BaseMapId;
@@ -28,11 +29,13 @@ interface MapViewerProps {
   inspectedPoint: InspectorPoint | null;
   onStatusChange: (status: WebGPUStatus) => void;
   onInspectPoint: (point: InspectorPoint) => void;
+  onSelectFavorite?: (preset: PresetLocation) => void;
   mapInstanceRef?: React.MutableRefObject<maplibregl.Map | null>;
 }
 
 export const MapViewer: React.FC<MapViewerProps> = ({
   activePreset,
+  favorites = [],
   exaggeration,
   rainOpacity,
   baseMap,
@@ -40,21 +43,63 @@ export const MapViewer: React.FC<MapViewerProps> = ({
   inspectedPoint,
   onStatusChange,
   onInspectPoint,
+  onSelectFavorite,
   mapInstanceRef,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const internalMapRef = useRef<maplibregl.Map | null>(null);
   const markerRef = useRef<maplibregl.Marker | null>(null);
+  const favoriteMarkersRef = useRef<maplibregl.Marker[]>([]);
   const isMapLoadedRef = useRef<boolean>(false);
   const hasUserMovedOrSelectedRef = useRef<boolean>(false);
   const initialPresetIdRef = useRef<string>(activePreset.id);
   const latestRainOpacityRef = useRef<number>(rainOpacity);
   const latestExaggerationRef = useRef<number>(exaggeration);
+  const latestFavoritesRef = useRef<PresetLocation[]>(favorites);
   const onInspectPointRef = useRef(onInspectPoint);
+  const onSelectFavoriteRef = useRef(onSelectFavorite);
 
   latestRainOpacityRef.current = rainOpacity;
   latestExaggerationRef.current = exaggeration;
+  latestFavoritesRef.current = favorites;
   onInspectPointRef.current = onInspectPoint;
+  onSelectFavoriteRef.current = onSelectFavorite;
+
+  const renderFavoriteMarkers = (map: maplibregl.Map, favList: PresetLocation[]) => {
+    for (const m of favoriteMarkersRef.current) {
+      m.remove();
+    }
+    favoriteMarkersRef.current = [];
+
+    for (const fav of favList) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'fav-map-marker';
+      btn.title = `⭐ ${fav.name}（クリックして視点・インスペクターを表示）`;
+      btn.setAttribute('aria-label', `お気に入り地点: ${fav.name}`);
+
+      const star = document.createElement('span');
+      star.className = 'fav-map-star';
+      star.textContent = '★';
+
+      const label = document.createElement('span');
+      label.className = 'fav-map-label';
+      label.textContent = fav.name;
+
+      btn.appendChild(star);
+      btn.appendChild(label);
+
+      btn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        onSelectFavoriteRef.current?.(fav);
+      });
+
+      const marker = new maplibregl.Marker({ element: btn, anchor: 'center' })
+        .setLngLat(fav.center)
+        .addTo(map);
+      favoriteMarkersRef.current.push(marker);
+    }
+  };
 
   // MapLibre GL JS 初期化 (WebGPU優先 + WebGL2自動フォールバック)
   useEffect(() => {
@@ -125,6 +170,18 @@ export const MapViewer: React.FC<MapViewerProps> = ({
       if (mapInstanceRef) {
         mapInstanceRef.current = map;
       }
+
+      const updateFavZoomMode = () => {
+        if (!containerRef.current) return;
+        const nextMode = map.getZoom() >= 9 ? 'detail' : 'wide';
+        if (containerRef.current.dataset.favMode !== nextMode) {
+          containerRef.current.dataset.favMode = nextMode;
+        }
+      };
+      updateFavZoomMode();
+      map.on('zoom', updateFavZoomMode);
+
+      renderFavoriteMarkers(map, latestFavoritesRef.current);
 
       if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
         resizeObserver = new ResizeObserver(() => {
@@ -257,6 +314,10 @@ export const MapViewer: React.FC<MapViewerProps> = ({
       cancelAnimationFrame(rafId);
       resizeObserver?.disconnect();
       isMapLoadedRef.current = false;
+      for (const m of favoriteMarkersRef.current) {
+        m.remove();
+      }
+      favoriteMarkersRef.current = [];
       if (markerRef.current) {
         markerRef.current.remove();
         markerRef.current = null;
@@ -337,6 +398,13 @@ export const MapViewer: React.FC<MapViewerProps> = ({
       markerRef.current.setLngLat([inspectedPoint.lng, inspectedPoint.lat]);
     }
   }, [inspectedPoint]);
+
+  // お気に入り地点の地図上「★」マーカー同期（広域=★のみ / 拡大=★＋地点名）
+  useEffect(() => {
+    const map = internalMapRef.current;
+    if (!map) return;
+    renderFavoriteMarkers(map, favorites);
+  }, [favorites]);
 
   // プリセット変更時のスムーズな3Dカメラフライ移動
   useEffect(() => {

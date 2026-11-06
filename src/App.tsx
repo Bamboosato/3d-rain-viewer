@@ -507,6 +507,7 @@ export const App: React.FC = () => {
       {/* メイン3D地図キャンバス (<div id="map" className="w-full h-full" /> を内包) */}
       <MapViewer
         activePreset={activePreset}
+        favorites={favorites}
         exaggeration={exaggeration}
         rainOpacity={rainOpacity}
         baseMap={baseMap}
@@ -514,6 +515,7 @@ export const App: React.FC = () => {
         inspectedPoint={inspectedPoint}
         onStatusChange={setGpuStatus}
         onInspectPoint={handleInspectPoint}
+        onSelectFavorite={handleSelectPreset}
         mapInstanceRef={mapInstanceRef}
       />
 

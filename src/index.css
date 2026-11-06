@@ -76,6 +76,63 @@
   overflow: hidden;
 }
 
+/* お気に入り地点の地図上マーカー（ズームレベル連動: 広域=★のみ / 詳細=★＋地点名） */
+.fav-map-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 9999px;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1.5px solid rgba(251, 191, 36, 0.85);
+  color: #fef3c7;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.55),
+    0 0 8px rgba(245, 158, 11, 0.35);
+  cursor: pointer;
+  user-select: none;
+  transition:
+    transform 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.fav-map-marker:hover {
+  transform: scale(1.08);
+  background: rgba(30, 41, 59, 0.95);
+  border-color: #fbbf24;
+}
+
+.fav-map-star {
+  color: #fbbf24;
+  font-size: 13px;
+  line-height: 1;
+  filter: drop-shadow(0 0 4px rgba(251, 191, 36, 0.5));
+}
+
+.fav-map-label {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 広域表示時 (zoom < 9) は文字ラベルを隠し、コンパクトな「★」バッジのみを表示 */
+[data-fav-mode='wide'] .fav-map-marker {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  gap: 0;
+}
+
+[data-fav-mode='wide'] .fav-map-label {
+  display: none;
+}
+
 /* ==========================================================================
    View Transitions API ネイティブUI遷移スタイル (外部アニメーションライブラリ不使用)
    ========================================================================== */
