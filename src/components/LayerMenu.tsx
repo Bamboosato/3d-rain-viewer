@@ -25,7 +25,9 @@ export const LayerMenu: React.FC<LayerMenuProps> = ({
   rainSource,
   onChangeRainSource,
 }) => {
-  const [isOpen, setIsOpen] = useState<boolean>(true);
+  const [isOpen, setIsOpen] = useState<boolean>(() =>
+    typeof window !== 'undefined' ? window.innerWidth >= 768 : true
+  );
 
   const handleToggleOpen = () => {
     runViewTransition(() => {
@@ -45,14 +47,15 @@ export const LayerMenu: React.FC<LayerMenuProps> = ({
         onClick={handleToggleOpen}
         aria-expanded={isOpen}
         aria-controls="layer-menu-panel"
-        className="inline-flex items-center gap-2 min-h-[42px] px-3.5 py-2 rounded-2xl bg-slate-900/90 hover:bg-slate-800/95 backdrop-blur-md border border-slate-700/80 shadow-xl text-xs font-semibold text-slate-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+        className="inline-flex items-center gap-2 min-h-[40px] px-3 py-1.5 rounded-2xl bg-slate-900/90 hover:bg-slate-800/95 backdrop-blur-md border border-slate-700/80 shadow-xl text-xs font-semibold text-slate-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
       >
         <Settings
           className={`w-4 h-4 text-sky-400 transition-transform duration-300 ${
             isOpen ? 'rotate-90' : 'rotate-0'
           }`}
         />
-        <span>レイヤー＆描画調整</span>
+        <span className="hidden sm:inline">レイヤー＆描画調整</span>
+        <span className="sm:hidden">設定</span>
         <ChevronUp
           className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${
             isOpen ? 'rotate-0' : 'rotate-180'

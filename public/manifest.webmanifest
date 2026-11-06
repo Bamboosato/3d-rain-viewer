@@ -1,0 +1,46 @@
+{
+  "id": "/",
+  "name": "3D RainScape — 山のリアルタイム3D雨雲レーダー",
+  "short_name": "3D RainScape",
+  "description": "気象庁ナウキャスト(+15h予測)・JAXA GSMaP衛星雨雲を3D山岳地形(AW3D30)上に立体表示するWebGPU対応ビューア",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#020617",
+  "theme_color": "#020617",
+  "lang": "ja",
+  "categories": ["weather", "navigation", "utilities"],
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

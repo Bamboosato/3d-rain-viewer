@@ -4,6 +4,7 @@ import {
   Activity,
   CloudRain,
   Cpu,
+  Download,
   Info,
   LocateFixed,
   X,
@@ -59,6 +60,27 @@ export const App: React.FC = () => {
 
   const [inspectedPoint, setInspectedPoint] = useState<InspectorPoint | null>(null);
   const [showCreditModal, setShowCreditModal] = useState<boolean>(false);
+  const [installPromptEvent, setInstallPromptEvent] = useState<
+    (Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> }) | null
+  >(null);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setInstallPromptEvent(
+        e as Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> }
+      );
+    };
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+  }, []);
+
+  const handleInstallPwa = useCallback(async () => {
+    if (!installPromptEvent) return;
+    await installPromptEvent.prompt();
+    await installPromptEvent.userChoice;
+    setInstallPromptEvent(null);
+  }, [installPromptEvent]);
 
   const [gpuStatus, setGpuStatus] = useState<WebGPUStatus>({
     backend: 'webgpu',
@@ -431,6 +453,18 @@ export const App: React.FC = () => {
             <span className="text-sky-300 font-semibold">{gpuStatus.fps} FPS</span>
           </div>
 
+          {installPromptEvent && (
+            <button
+              id="pwa-install-btn"
+              type="button"
+              onClick={handleInstallPwa}
+              className="inline-flex items-center gap-1.5 min-h-[38px] px-3 py-1.5 rounded-xl bg-emerald-500/25 hover:bg-emerald-500/35 backdrop-blur-md border border-emerald-400/50 text-xs font-semibold text-emerald-200 transition-colors cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5 text-emerald-400" />
+              <span>アプリ追加</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={handleJumpToCurrentLocation}
@@ -452,7 +486,7 @@ export const App: React.FC = () => {
             className="inline-flex items-center gap-1.5 min-h-[38px] px-3 py-1.5 rounded-xl bg-slate-900/85 hover:bg-slate-800 backdrop-blur-md border border-slate-700/80 text-xs text-slate-200 transition-colors cursor-pointer"
           >
             <Info className="w-3.5 h-3.5 text-sky-400" />
-            <span>データソース情報</span>
+            <span className="hidden sm:inline">データソース情報</span>
           </button>
         </div>
       </header>
@@ -490,7 +524,7 @@ export const App: React.FC = () => {
       </div>
 
       {/* 右下: 降雨強度 (mm/h) カラーバー凡例 */}
-      <div className="pointer-events-none absolute bottom-32 sm:bottom-6 right-4 z-10">
+      <div className="pointer-events-none hidden sm:block absolute bottom-32 sm:bottom-6 right-4 z-10">
         <Legend
           maxPrecipitation={rainLayerData?.maxPrecipitation ?? 0}
           isLoading={isLoadingRain}

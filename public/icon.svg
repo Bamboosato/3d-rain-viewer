@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#020617" />
+    </linearGradient>
+    <linearGradient id="mtn" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#1d4ed8" />
+    </linearGradient>
+    <linearGradient id="cloud" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7dd3fc" />
+      <stop offset="100%" stop-color="#0284c7" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)" />
+  <!-- Mountain 3D silhouette -->
+  <polygon points="76,404 224,200 372,404" fill="#1e293b" stroke="#334155" stroke-width="8" stroke-linejoin="round" />
+  <polygon points="168,404 316,176 444,404" fill="url(#mtn)" opacity="0.88" stroke="#7dd3fc" stroke-width="8" stroke-linejoin="round" />
+  <!-- Snow cap -->
+  <polygon points="316,176 276,244 302,236 316,252 332,236 354,244" fill="#f8fafc" />
+  <!-- Rain cloud -->
+  <path d="M164,196 a52,52 0 0,1 96,-24 a44,44 0 0,1 68,36 a36,36 0 0,1 -8,71 H168 a40,40 0 0,1 -4,-83 z" fill="url(#cloud)" stroke="#e0f2fe" stroke-width="8" />
+  <!-- Raindrops -->
+  <line x1="188" y1="304" x2="172" y2="348" stroke="#38bdf8" stroke-width="14" stroke-linecap="round" />
+  <line x1="244" y1="304" x2="228" y2="348" stroke="#38bdf8" stroke-width="14" stroke-linecap="round" />
+  <line x1="300" y1="304" x2="284" y2="348" stroke="#38bdf8" stroke-width="14" stroke-linecap="round" />
+</svg>

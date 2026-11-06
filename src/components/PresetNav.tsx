@@ -45,10 +45,11 @@ export const PresetNav: React.FC<PresetNavProps> = ({
         onClick={handleToggleOpen}
         aria-expanded={isOpen}
         aria-controls="preset-nav-panel"
-        className="inline-flex items-center gap-2 min-h-[40px] px-3.5 py-1.5 rounded-2xl bg-slate-900/85 hover:bg-slate-800/95 backdrop-blur-md border border-slate-700/80 shadow-xl text-xs font-semibold text-slate-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+        className="inline-flex items-center gap-1.5 min-h-[40px] px-3 py-1.5 rounded-2xl bg-slate-900/85 hover:bg-slate-800/95 backdrop-blur-md border border-slate-700/80 shadow-xl text-xs font-semibold text-slate-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
       >
         <Compass className="w-4 h-4 text-sky-400 shrink-0" />
-        <span>山岳エリア切り替え</span>
+        <span className="hidden sm:inline">山岳エリア切り替え</span>
+        <span className="sm:hidden">山岳</span>
         <span className="px-2 py-0.5 rounded-lg bg-slate-800/90 border border-slate-700 text-[11px] font-medium text-sky-200">
           {activePreset.emoji} {activePreset.name}
         </span>
