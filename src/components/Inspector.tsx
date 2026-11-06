@@ -93,8 +93,8 @@ export const Inspector: React.FC<InspectorProps> = ({ point, onClose }) => {
             }
           : {
               position: 'fixed',
-              right: '10px',
-              bottom: '90px',
+              right: 'calc(env(safe-area-inset-right, 0px) + 10px)',
+              bottom: 'calc(env(safe-area-inset-bottom, 0px) + 90px)',
             }
       }
       className="vt-inspector-card pointer-events-auto rounded-2xl bg-slate-900/95 backdrop-blur-md border border-sky-400/60 shadow-2xl p-3 sm:p-4 text-xs text-slate-100 w-64 sm:w-72"

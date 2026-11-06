@@ -452,14 +452,14 @@ export const App: React.FC = () => {
         mapInstanceRef={mapInstanceRef}
       />
 
-      {/* 上部ヘッダーバー（左: タイトル / 右: 操作ボタン群を一列に集約） */}
-      <header className="pointer-events-none absolute top-0 inset-x-0 z-20 flex items-center justify-between gap-2 px-3 sm:px-4 py-2.5 sm:py-3 bg-gradient-to-b from-slate-950/90 via-slate-950/45 to-transparent">
-        <div className="pointer-events-auto flex items-center gap-2 min-w-0 shrink-0">
+      {/* 上部ヘッダーバー（iPhone ノッチ・Dynamic Island の safe-area-inset-top を考慮して配置） */}
+      <header className="safe-header-padding pointer-events-none absolute top-0 inset-x-0 z-20 flex items-center justify-between gap-1.5 sm:gap-2 bg-gradient-to-b from-slate-950/95 via-slate-950/55 to-transparent">
+        <div className="pointer-events-auto flex items-center gap-1.5 sm:gap-2 min-w-0 shrink-0">
           <div className="flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-br from-sky-400 to-blue-600 shadow-lg shadow-sky-500/25 shrink-0">
             <CloudRain className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
           </div>
           <div className="min-w-0">
-            <h1 className="text-sm sm:text-base font-bold tracking-tight text-white truncate">
+            <h1 className="text-xs sm:text-base font-bold tracking-tight text-white truncate">
               3D RainScape
             </h1>
             <p className="text-[11px] text-slate-400 hidden xl:block">
@@ -559,8 +559,8 @@ export const App: React.FC = () => {
         />
       </div>
 
-      {/* 下部中央: 時系列タイムラプスバー (横方向センタリング) */}
-      <div className="pointer-events-none absolute bottom-2.5 sm:bottom-4 inset-x-2.5 sm:inset-x-16 z-20 flex justify-center">
+      {/* 下部中央: 時系列タイムラプスバー (横方向センタリング + iPhone ホームバー safe-area-inset-bottom 対応) */}
+      <div className="safe-bottom-timeline pointer-events-none absolute inset-x-2.5 sm:inset-x-16 z-20 flex justify-center">
         <TimelineBar
           rainSource={rainSource}
           onChangeRainSource={handleChangeRainSource}

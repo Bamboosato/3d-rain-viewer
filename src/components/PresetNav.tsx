@@ -132,11 +132,11 @@ export const PresetNav: React.FC<PresetNavProps> = ({
         />
       </button>
 
-      {/* 展開パネル本体（右上ツールバー直下に固定展開） */}
+      {/* 展開パネル本体（右上ツールバー直下に固定展開 + iPhone safe-area-inset-top 対応） */}
       {isOpen && (
         <div
           id="preset-nav-panel"
-          className="vt-preset-card fixed top-14 right-3 sm:right-4 z-30 rounded-2xl bg-slate-900/90 backdrop-blur-md border border-slate-700/80 shadow-2xl p-3 text-slate-100 w-[calc(100vw-1.5rem)] sm:w-[26rem] max-w-md space-y-2.5"
+          className="vt-preset-card safe-top-dropdown fixed z-30 rounded-2xl bg-slate-900/90 backdrop-blur-md border border-slate-700/80 shadow-2xl p-3 text-slate-100 w-[calc(100vw-1.5rem)] sm:w-[26rem] max-w-md space-y-2.5 overflow-y-auto"
         >
           {/* 階層ステップ1: 地域ブロック ➔ 都道府県 絞り込みセレクト */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">

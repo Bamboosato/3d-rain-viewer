@@ -69,11 +69,11 @@ export const LayerMenu: React.FC<LayerMenuProps> = ({
         />
       </button>
 
-      {/* 展開パネル本体（右上ツールバー直下に固定展開） */}
+      {/* 展開パネル本体（右上ツールバー直下に固定展開 + iPhone safe-area-inset-top 対応） */}
       {isOpen && (
         <div
           id="layer-menu-panel"
-          className="fixed top-14 right-3 sm:right-4 z-30 rounded-2xl bg-slate-900/90 backdrop-blur-md border border-slate-700/80 shadow-2xl p-3.5 text-xs text-slate-100 w-72 space-y-2.5 max-h-[calc(100vh-12rem)] overflow-y-auto"
+          className="safe-top-dropdown fixed z-30 rounded-2xl bg-slate-900/90 backdrop-blur-md border border-slate-700/80 shadow-2xl p-3.5 text-xs text-slate-100 w-72 space-y-2.5 overflow-y-auto"
         >
           {/* 0. 雨雲データソース切り替え (リアルタイム気象庁ナウキャスト ⇄ 衛星確定値JAXA GSMaP) */}
           <div>
