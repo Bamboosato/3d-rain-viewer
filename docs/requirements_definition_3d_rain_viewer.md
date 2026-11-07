@@ -5,9 +5,10 @@
 | 項目 | 内容 |
 | :--- | :--- |
 | **システム名称** | リアルタイム雨雲×3D山岳地形ビューア（3D RainScape） |
+| **公開URL** | [https://3d-rain-viewer.bamboosato.com/](https://3d-rain-viewer.bamboosato.com/) |
 | **開発スタック** | Vite + React + TypeScript + Tailwind CSS |
 | **レンダリング & UI基盤** | **WebGPU**（MapLibre GL JS 次世代3D描画） ＋ **View Transitions API**（ネイティブUI状態遷移） |
-| **ホスティング環境** | Vercel（GitHub連携による自動CI/CD、Edge Network静的配信） |
+| **ホスティング環境** | Vercel（GitHub連携による自動CI/CD、Edge Network静的配信、カスタムドメイン `3d-rain-viewer.bamboosato.com`） |
 | **データソース** | ・**気象庁**: 高解像度降水ナウキャスト ＋ 今後の雨（降水短時間予報）<br>・**JAXA Earth API**: GSMaP 衛星全球降水マップ、AW3D30 全球数値地表モデル<br>・**背景地図**: OpenStreetMap、国土地理院 地理院タイル、Esri World Imagery |
 | **想定プラットフォーム** | モダンWebブラウザ（PC、タブレット、スマートフォン iOS/Android、PWA対応） |
 

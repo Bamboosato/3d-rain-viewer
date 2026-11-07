@@ -1,5 +1,7 @@
 # 3D RainScape — リアルタイム雨雲 × 3D山岳地形ビューア
 
+🌐 **公開URL**: [https://3d-rain-viewer.bamboosato.com/](https://3d-rain-viewer.bamboosato.com/)
+
 **WebGPU (MapLibre GL JS)** と **View Transitions API** を活用し、日本の山岳地形（**JAXA AW3D30**）上にリアルタイム雨雲（**気象庁 高解像度降水ナウキャスト / 降水短時間予報**）および衛星確定値（**JAXA GSMaP**）を立体的に重ね合わせて可視化するモダンWebアプリケーションです。
 
 ---
