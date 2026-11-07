@@ -43,6 +43,7 @@ import {
   resolveFrameIndexFromTimeParam,
   resolveInitialPresetFromUrl,
   shareOrCopyUrl,
+  type UrlViewState,
 } from './lib/urlSync';
 import { runViewTransition } from './lib/viewTransition';
 import type {
@@ -117,7 +118,7 @@ export const App: React.FC = () => {
   });
   const [shareToastVersion, setShareToastVersion] = useState<number>(0);
   const [showCreditModal, setShowCreditModal] = useState<boolean>(false);
-  const [openTopPanel, setOpenTopPanel] = useState<'preset' | 'layer' | null>(null);
+  const [openTopPanel, setOpenTopPanel] = useState<'preset' | 'layer' | 'share' | null>(null);
   const [isLocating, setIsLocating] = useState<boolean>(false);
   const [installPromptEvent, setInstallPromptEvent] = useState<
     (Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> }) | null
@@ -765,58 +766,57 @@ export const App: React.FC = () => {
     );
   }, [isLocating]);
 
-  // PWA Link Capturing (Launch Handler API): インストール済みPWAが共有URLから起動・フォーカスされた際に視点と地点名を即時反映
-  useEffect(() => {
-    const win = window as Window & {
-      launchQueue?: {
-        setConsumer: (consumer: (launchParams: { targetURL?: string }) => void) => void;
+  // 共有URL読み込み（メニューからの読込・またはPWA Launch Handler API 経由）で3D視点・地点名・時刻を即時反映
+  const handleImportUrlState = useCallback(
+    async (urlState: UrlViewState) => {
+      const { preset } = resolveInitialPresetFromUrl(urlState, favorites);
+      const [lng, lat] = preset.center;
+
+      sharedSpotNameRef.current = urlState.spotName;
+      cameraViewRef.current = {
+        lat,
+        lng,
+        zoom: preset.zoom,
+        pitch: preset.pitch,
+        bearing: preset.bearing,
       };
-    };
-    if (!win.launchQueue) return;
+      scheduleUrlSync();
 
-    win.launchQueue.setConsumer(async (launchParams) => {
-      if (!launchParams?.targetURL) return;
-      try {
-        const parsedUrl = new URL(launchParams.targetURL);
-        if (!parsedUrl.search) return;
-        const urlState = parseUrlViewState(parsedUrl.search);
-        if (!urlState) return;
-
-        const { preset } = resolveInitialPresetFromUrl(urlState, favorites);
-        const [lng, lat] = preset.center;
-
-        sharedSpotNameRef.current = urlState.spotName;
-        cameraViewRef.current = {
-          lat,
-          lng,
-          zoom: preset.zoom,
-          pitch: preset.pitch,
-          bearing: preset.bearing,
-        };
-
-        if (urlState.exaggeration !== undefined) {
-          setExaggeration(urlState.exaggeration);
+      if (urlState.exaggeration !== undefined) {
+        setExaggeration(urlState.exaggeration);
+      }
+      if (urlState.baseMap) {
+        setBaseMap(urlState.baseMap);
+      }
+      if (urlState.rainSource && urlState.rainSource !== rainSource) {
+        if (urlState.timeParam !== undefined) {
+          pendingUrlTimeParamRef.current = urlState.timeParam;
         }
-        if (urlState.baseMap) {
-          setBaseMap(urlState.baseMap);
-        }
-        if (urlState.rainSource) {
-          setRainSource(urlState.rainSource);
-        }
+        setRainSource(urlState.rainSource);
+      } else if (urlState.timeParam !== undefined && timelineFrames.length > 0) {
+        const targetIdx = resolveFrameIndexFromTimeParam(
+          urlState.timeParam,
+          timelineFrames,
+          currentTimeIndex
+        );
+        handleSelectTimeIndex(targetIdx);
+      }
 
-        mapInstanceRef.current?.flyTo({
-          center: [lng, lat],
-          zoom: preset.zoom,
-          pitch: preset.pitch,
-          bearing: preset.bearing,
-          duration: 1400,
-          essential: true,
-        });
+      mapInstanceRef.current?.flyTo({
+        center: [lng, lat],
+        zoom: preset.zoom,
+        pitch: preset.pitch,
+        bearing: preset.bearing,
+        duration: 1400,
+        essential: true,
+      });
 
-        const inspected = inspectLocationValues(lng, lat);
-        const resolvedElevation =
-          preset.elevation && preset.elevation > 0 ? preset.elevation : inspected.elevation;
+      const inspected = inspectLocationValues(lng, lat);
+      const resolvedElevation =
+        preset.elevation && preset.elevation > 0 ? preset.elevation : inspected.elevation;
 
+      runViewTransition(() => {
+        setOpenTopPanel(null);
         setActivePreset(preset);
         setActivePresetRain(inspected.precipitation ?? 0);
 
@@ -832,23 +832,55 @@ export const App: React.FC = () => {
             screenY,
             label: preset.isFavorite ? `⭐ ${urlState.spotName}` : `📍 ${urlState.spotName}`,
           });
+        } else {
+          setInspectedPoint(null);
+        }
+      });
 
-          if (resolvedElevation === null) {
-            const fetchedElev = await fetchPointElevationFromAW3D(lng, lat);
-            if (fetchedElev !== null) {
-              setInspectedPoint((prev) =>
-                prev && prev.lng === lng && prev.lat === lat
-                  ? { ...prev, elevation: fetchedElev }
-                  : prev
-              );
-            }
-          }
+      if (urlState.spotName && resolvedElevation === null) {
+        const fetchedElev = await fetchPointElevationFromAW3D(lng, lat);
+        if (fetchedElev !== null) {
+          setInspectedPoint((prev) =>
+            prev && prev.lng === lng && prev.lat === lat
+              ? { ...prev, elevation: fetchedElev }
+              : prev
+          );
+        }
+      }
+    },
+    [
+      favorites,
+      rainSource,
+      timelineFrames,
+      currentTimeIndex,
+      scheduleUrlSync,
+      handleSelectTimeIndex,
+    ]
+  );
+
+  // PWA Link Capturing (Launch Handler API): インストール済みPWAが共有URLから起動・フォーカスされた際に視点と地点名を即時反映
+  useEffect(() => {
+    const win = window as Window & {
+      launchQueue?: {
+        setConsumer: (consumer: (launchParams: { targetURL?: string }) => void) => void;
+      };
+    };
+    if (!win.launchQueue) return;
+
+    win.launchQueue.setConsumer((launchParams) => {
+      if (!launchParams?.targetURL) return;
+      try {
+        const parsedUrl = new URL(launchParams.targetURL);
+        if (!parsedUrl.search) return;
+        const urlState = parseUrlViewState(parsedUrl.search);
+        if (urlState) {
+          handleImportUrlState(urlState);
         }
       } catch (err) {
         console.warn('Failed to apply launchQueue targetURL:', err);
       }
     });
-  }, [favorites]);
+  }, [handleImportUrlState]);
 
   // モーダル・上部パネルオープン時の Escape キー対応 (a11y-debugging 準拠)
   useEffect(() => {
@@ -888,7 +920,7 @@ export const App: React.FC = () => {
         mapInstanceRef={mapInstanceRef}
       />
 
-      {/* 百名山・お気に入り／設定パネル展開中は背後の地図操作・選択をブロックし、背景タップでパネルを閉じる */}
+      {/* 百名山・お気に入り／設定／共有パネル展開中は背後の地図操作・選択をブロックし、背景タップでパネルを閉じる */}
       {openTopPanel !== null && (
         <div
           id="top-panel-backdrop"
@@ -988,6 +1020,13 @@ export const App: React.FC = () => {
           <ShareButton
             onFlushUrlState={flushUrlState}
             externalToastVersion={shareToastVersion}
+            onImportUrlState={handleImportUrlState}
+            isOpen={openTopPanel === 'share'}
+            onToggleOpen={() =>
+              runViewTransition(() =>
+                setOpenTopPanel((prev) => (prev === 'share' ? null : 'share'))
+              )
+            }
           />
 
           <button

@@ -107,6 +107,38 @@ export function parseUrlViewState(
 }
 
 /**
+ * クリップボードのテキストや貼り付け文字列（共有メッセージ全文・URL・クエリ文字列）から
+ * UrlViewState を抽出します。
+ */
+export function extractUrlViewStateFromText(rawText: string): UrlViewState | null {
+  const trimmed = rawText.trim();
+  if (!trimmed) return null;
+
+  // 1. テキスト内に https://... または http://... が含まれている場合（LINE等の共有文面ごとコピーされたケースにも対応）
+  const urlMatch = trimmed.match(/https?:\/\/[^\s"'<>]+/i);
+  if (urlMatch) {
+    try {
+      const parsed = new URL(urlMatch[0]);
+      if (parsed.search) {
+        const state = parseUrlViewState(parsed.search);
+        if (state) return state;
+      }
+    } catch {
+      // フォールバックへ進む
+    }
+  }
+
+  // 2. クエリ文字列単体（`?lat=...&lng=...` または `lat=...&lng=...`）が貼り付けられたケース
+  const qIndex = trimmed.indexOf('?');
+  const candidateSearch = qIndex >= 0 ? trimmed.slice(qIndex) : trimmed;
+  if (candidateSearch.includes('lat=') && candidateSearch.includes('lng=')) {
+    return parseUrlViewState(candidateSearch);
+  }
+
+  return null;
+}
+
+/**
  * URLパラメータから復元した UrlViewState を PresetLocation に変換します。
  * 座標が日本百名山プリセットの山頂付近（約2km以内）に一致する場合はその山岳情報を引き継ぎます。
  */
