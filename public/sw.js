@@ -1,5 +1,5 @@
-const SHELL_CACHE = 'rain3d-shell-v2';
-const RUNTIME_CACHE = 'rain3d-runtime-v2';
+const SHELL_CACHE = 'rain3d-shell-v3';
+const RUNTIME_CACHE = 'rain3d-runtime-v3';
 const MAX_RUNTIME_ENTRIES = 160;
 
 const PRECACHE_URLS = [
@@ -83,10 +83,10 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 3. 地図タイル・気象庁ナウキャストタイル: Stale-While-Revalidate / Network-First + キャッシュフォールバック
+  // 3. 地図タイル・気象庁ナウキャストタイルのみ対象（nominatim.openstreetmap.org や msearch.gsi.go.jp 等の検索APIは除外）
   const isMapOrWeatherTile =
-    url.hostname.includes('openstreetmap.org') ||
-    url.hostname.includes('gsi.go.jp') ||
+    url.hostname === 'tile.openstreetmap.org' ||
+    url.hostname === 'cyberjapandata.gsi.go.jp' ||
     url.hostname.includes('arcgisonline.com') ||
     url.hostname.includes('jma.go.jp');
 
@@ -103,7 +103,10 @@ self.addEventListener('fetch', (event) => {
           }
           return response;
         })
-        .catch(() => caches.match(request))
+        .catch(async () => {
+          const cached = await caches.match(request);
+          return cached || Response.error();
+        })
     );
   }
 });

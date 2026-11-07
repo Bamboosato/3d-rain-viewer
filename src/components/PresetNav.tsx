@@ -154,7 +154,12 @@ export const PresetNav: React.FC<PresetNavProps> = ({
     setSearchError(null);
     setIsSearchingOsm(true);
 
-    searchOsmLocationsByKeyword(trimmed, controller.signal)
+    searchOsmLocationsByKeyword(trimmed, controller.signal, (partialItems) => {
+      if (!controller.signal.aborted && partialItems.length > 0) {
+        setOsmResults(partialItems);
+        setIsSearchingOsm(false);
+      }
+    })
       .then((items) => {
         if (!controller.signal.aborted) {
           setOsmResults(items);
@@ -235,7 +240,7 @@ export const PresetNav: React.FC<PresetNavProps> = ({
       {isOpen && (
         <div
           id="preset-nav-panel"
-          className="vt-preset-card safe-top-dropdown fixed z-30 rounded-2xl bg-slate-900/95 backdrop-blur-md border border-slate-700/80 shadow-2xl p-3.5 text-slate-100 w-[calc(100vw-1.5rem)] sm:w-[26rem] max-w-md space-y-3 overflow-y-auto"
+          className="safe-top-dropdown fixed z-30 rounded-2xl bg-slate-900/95 backdrop-blur-md border border-slate-700/80 shadow-2xl p-3.5 text-slate-100 w-[calc(100vw-1.5rem)] sm:w-[26rem] max-w-md space-y-3 overflow-y-auto"
         >
           {/* 3タブ切替: 🏔️ 百名山 / ⭐ お気に入り / 🔍 検索 */}
           <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-slate-950/85 border border-slate-800">

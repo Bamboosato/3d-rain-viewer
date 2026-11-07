@@ -572,8 +572,46 @@ interface NominatimSearchItem {
   address?: Record<string, string>;
 }
 
+interface GsiAddressSearchItem {
+  geometry?: {
+    coordinates?: [number, number];
+    type?: string;
+  };
+  properties?: {
+    addressCode?: string;
+    title?: string;
+  };
+}
+
 const NOMINATIM_SEARCH_URL = 'https://nominatim.openstreetmap.org/search';
+const GSI_SEARCH_URL = 'https://msearch.gsi.go.jp/address-search/AddressSearch';
+const SEARCH_TIMEOUT_MS = 4500;
 const searchResultCache = new Map<string, { items: OsmSearchLocation[]; timestamp: number }>();
+
+function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+  externalSignal?: AbortSignal
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = globalThis.setTimeout(() => controller.abort(), timeoutMs);
+
+  const onExternalAbort = () => controller.abort();
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      globalThis.clearTimeout(timer);
+      controller.abort();
+    } else {
+      externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+    }
+  }
+
+  return fetch(url, { ...init, signal: controller.signal }).finally(() => {
+    globalThis.clearTimeout(timer);
+    externalSignal?.removeEventListener('abort', onExternalAbort);
+  });
+}
 
 function classifyNominatimSearchResult(
   category?: string,
@@ -620,6 +658,64 @@ function classifyNominatimSearchResult(
   return { label: '施設', emoji: '📍', zoom: 13.5 };
 }
 
+function classifyGsiTitle(title: string): { label: string; emoji: string; zoom: number } {
+  if (/(山|岳|峰|嶺|富士|駒|槍|穂高|乗鞍|立山|白馬|八ヶ岳|アルプス)$/.test(title)) {
+    return { label: '山岳', emoji: '⛰️', zoom: 12.2 };
+  }
+  if (/(高原|湿原|渓谷|峡|滝|湖|沼|池|峠|岬|島|半島)$/.test(title)) {
+    return { label: '自然', emoji: '🌿', zoom: 12.6 };
+  }
+  if (/駅$/.test(title)) {
+    return { label: '駅', emoji: '🚉', zoom: 13.8 };
+  }
+  if (/空港$/.test(title)) {
+    return { label: '空港', emoji: '✈️', zoom: 12.5 };
+  }
+  if (/(市|区|町|村)$/.test(title)) {
+    return { label: '自治体', emoji: '🗺️', zoom: 11.5 };
+  }
+  return { label: '地名・スポット', emoji: '📍', zoom: 13.0 };
+}
+
+function splitGsiTitle(rawTitle: string, query: string): { name: string; subLabel: string } {
+  const cleaned = rawTitle.trim();
+  const prefMatch = cleaned.match(/^(北海道|東京都|(?:京都|大阪)府|.{2,3}県)(.+)$/);
+  if (!prefMatch) {
+    return { name: cleaned, subLabel: '国土地理院 地名検索' };
+  }
+  const pref = prefMatch[1];
+  const rest = prefMatch[2].trim();
+  if (!rest) {
+    return { name: cleaned, subLabel: '都道府県' };
+  }
+
+  // クエリ自体が末尾の施設名や山名に一致する場合は見出しを分かりやすく分離
+  const cityMatch = rest.match(/^(.+?[市区町村郡])(.+)$/);
+  if (cityMatch) {
+    const cityPart = cityMatch[1];
+    const detailPart = cityMatch[2].trim();
+    if (detailPart) {
+      return {
+        name: detailPart.length <= 2 ? `${cityPart}${detailPart}` : detailPart,
+        subLabel: `${pref} ${cityPart}`,
+      };
+    }
+  }
+
+  if (query && rest.endsWith(query) && rest.length > query.length) {
+    const prefix = rest.slice(0, rest.length - query.length).trim();
+    return {
+      name: query,
+      subLabel: `${pref}${prefix ? ` ${prefix}` : ''}`,
+    };
+  }
+
+  return {
+    name: rest,
+    subLabel: pref,
+  };
+}
+
 function buildSubLabel(
   primaryName: string,
   address?: Record<string, string>,
@@ -652,37 +748,86 @@ function buildSubLabel(
   return '日本';
 }
 
-/**
- * キーワードから OpenStreetMap (Nominatim Search API) を検索し、全国の地名・施設・山岳・駅の候補リストを返します。
- */
-export async function searchOsmLocationsByKeyword(
-  query: string,
+async function fetchGsiSearchLocations(
+  trimmed: string,
   signal?: AbortSignal
 ): Promise<OsmSearchLocation[]> {
-  const trimmed = query.trim();
-  if (!trimmed) return [];
+  const url = new URL(GSI_SEARCH_URL);
+  url.searchParams.set('q', trimmed);
 
-  const cacheKey = trimmed.toLowerCase();
-  const cached = searchResultCache.get(cacheKey);
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
-    return cached.items;
+  const res = await fetchWithTimeout(
+    url.toString(),
+    {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+    },
+    SEARCH_TIMEOUT_MS,
+    signal
+  );
+
+  if (!res.ok) {
+    throw new Error(`GSI Search HTTP ${res.status}`);
   }
 
+  const rawItems = (await res.json()) as GsiAddressSearchItem[];
+  const results: OsmSearchLocation[] = [];
+
+  for (let i = 0; i < rawItems.length; i++) {
+    const item = rawItems[i];
+    const coords = item.geometry?.coordinates;
+    const rawTitle = item.properties?.title?.trim();
+    if (!coords || coords.length < 2 || !rawTitle) continue;
+
+    const lng = Number(coords[0]);
+    const lat = Number(coords[1]);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+
+    const { name, subLabel } = splitGsiTitle(rawTitle, trimmed);
+    const meta = classifyGsiTitle(name);
+
+    const isDuplicate = results.some(
+      (r) => r.name === name && calcDistanceMeters(lat, lng, r.lat, r.lng) < 400
+    );
+    if (isDuplicate) continue;
+
+    results.push({
+      id: `osm-search-gsi-${i}-${lat.toFixed(4)}-${lng.toFixed(4)}`,
+      name,
+      subLabel,
+      category: meta.label,
+      emoji: meta.emoji,
+      lat,
+      lng,
+      recommendedZoom: meta.zoom,
+    });
+
+    if (results.length >= 6) break;
+  }
+
+  return results;
+}
+
+async function fetchNominatimSearchLocations(
+  trimmed: string,
+  signal?: AbortSignal
+): Promise<OsmSearchLocation[]> {
   const url = new URL(NOMINATIM_SEARCH_URL);
   url.searchParams.set('format', 'jsonv2');
   url.searchParams.set('q', trimmed);
   url.searchParams.set('countrycodes', 'jp');
   url.searchParams.set('addressdetails', '1');
-  url.searchParams.set('limit', '12');
+  url.searchParams.set('limit', '10');
   url.searchParams.set('accept-language', 'ja');
 
-  const res = await fetch(url.toString(), {
-    method: 'GET',
-    headers: {
-      Accept: 'application/json',
+  const res = await fetchWithTimeout(
+    url.toString(),
+    {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
     },
-    signal,
-  });
+    SEARCH_TIMEOUT_MS,
+    signal
+  );
 
   if (!res.ok) {
     throw new Error(`Nominatim Search HTTP ${res.status}`);
@@ -706,7 +851,6 @@ export async function searchOsmLocationsByKeyword(
     const subLabel = buildSubLabel(primaryName, item.address, item.display_name);
     const meta = classifyNominatimSearchResult(item.category, item.type);
 
-    // 同一名称かつごく近い距離の重複候補を除外
     const isDuplicate = results.some(
       (r) =>
         r.name === primaryName &&
@@ -728,11 +872,97 @@ export async function searchOsmLocationsByKeyword(
     if (results.length >= 8) break;
   }
 
-  searchResultCache.set(cacheKey, {
-    items: results,
-    timestamp: Date.now(),
-  });
-
   return results;
 }
+
+function mergeSearchLocations(
+  nominatimItems: OsmSearchLocation[],
+  gsiItems: OsmSearchLocation[]
+): OsmSearchLocation[] {
+  const merged: OsmSearchLocation[] = [];
+
+  const addIfUnique = (item: OsmSearchLocation) => {
+    const exists = merged.some(
+      (m) =>
+        calcDistanceMeters(item.lat, item.lng, m.lat, m.lng) < 500 &&
+        (m.name === item.name || m.name.includes(item.name) || item.name.includes(m.name))
+    );
+    if (!exists) {
+      merged.push(item);
+    }
+  };
+
+  for (const item of nominatimItems) {
+    addIfUnique(item);
+  }
+  for (const item of gsiItems) {
+    addIfUnique(item);
+  }
+
+  return merged.slice(0, 10);
+}
+
+/**
+ * キーワードから 国土地理院 地名検索API（国内高速）および OpenStreetMap (Nominatim Search API) を並列検索し、
+ * 先に返ってきた候補を `onPartialUpdate` で即時反映して待ち時間を解消します。
+ */
+export async function searchOsmLocationsByKeyword(
+  query: string,
+  signal?: AbortSignal,
+  onPartialUpdate?: (items: OsmSearchLocation[]) => void
+): Promise<OsmSearchLocation[]> {
+  const trimmed = query.trim();
+  if (!trimmed) return [];
+
+  const cacheKey = trimmed.toLowerCase();
+  const cached = searchResultCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    onPartialUpdate?.(cached.items);
+    return cached.items;
+  }
+
+  let nominatimList: OsmSearchLocation[] = [];
+  let gsiList: OsmSearchLocation[] = [];
+
+  const notifyPartial = () => {
+    if (signal?.aborted) return;
+    const current = mergeSearchLocations(nominatimList, gsiList);
+    if (current.length > 0) {
+      onPartialUpdate?.(current);
+    }
+  };
+
+  const gsiPromise = fetchGsiSearchLocations(trimmed, signal)
+    .then((items) => {
+      gsiList = items;
+      notifyPartial();
+      return items;
+    })
+    .catch(() => [] as OsmSearchLocation[]);
+
+  const nominatimPromise = fetchNominatimSearchLocations(trimmed, signal)
+    .then((items) => {
+      nominatimList = items;
+      notifyPartial();
+      return items;
+    })
+    .catch(() => [] as OsmSearchLocation[]);
+
+  await Promise.all([gsiPromise, nominatimPromise]);
+
+  if (signal?.aborted) {
+    return [];
+  }
+
+  const finalResults = mergeSearchLocations(nominatimList, gsiList);
+  if (finalResults.length > 0) {
+    searchResultCache.set(cacheKey, {
+      items: finalResults,
+      timestamp: Date.now(),
+    });
+  }
+
+  return finalResults;
+}
+
 
