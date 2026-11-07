@@ -37,10 +37,12 @@ import {
   saveFavoriteLocations,
 } from './lib/favoritesStorage';
 import {
+  buildCustomDomainShareUrl,
   parseUrlViewState,
   replaceUrlViewState,
   resolveFrameIndexFromTimeParam,
   resolveInitialPresetFromUrl,
+  shareOrCopyUrl,
 } from './lib/urlSync';
 import { runViewTransition } from './lib/viewTransition';
 import type {
@@ -62,6 +64,7 @@ export const App: React.FC = () => {
     resolveInitialPresetFromUrl(initialUrlStateRef.current, initialFavoritesRef.current)
   );
   const pendingUrlTimeParamRef = useRef<string | undefined>(initialUrlStateRef.current?.timeParam);
+  const sharedSpotNameRef = useRef<string | undefined>(initialUrlStateRef.current?.spotName);
 
   const [favorites, setFavorites] = useState<PresetLocation[]>(
     () => initialFavoritesRef.current ?? []
@@ -91,7 +94,28 @@ export const App: React.FC = () => {
   const [isLoadingRain, setIsLoadingRain] = useState<boolean>(true);
   const [activePresetRain, setActivePresetRain] = useState<number | null>(null);
 
-  const [inspectedPoint, setInspectedPoint] = useState<InspectorPoint | null>(null);
+  // URLに `name` クエリが含まれている場合は起動時に地点インスペクターを自動表示し共有元の地点名を表示
+  const [inspectedPoint, setInspectedPoint] = useState<InspectorPoint | null>(() => {
+    const urlState = initialUrlStateRef.current;
+    const preset = initialPresetResolutionRef.current.preset;
+    if (
+      urlState?.spotName &&
+      typeof urlState.lng === 'number' &&
+      typeof urlState.lat === 'number'
+    ) {
+      return {
+        lng: urlState.lng,
+        lat: urlState.lat,
+        elevation: preset.elevation > 0 ? preset.elevation : null,
+        precipitation: 0,
+        screenX: typeof window !== 'undefined' ? Math.round(window.innerWidth / 2) : undefined,
+        screenY: typeof window !== 'undefined' ? Math.round(window.innerHeight / 2) : undefined,
+        label: preset.isFavorite ? `⭐ ${urlState.spotName}` : `📍 ${urlState.spotName}`,
+      };
+    }
+    return null;
+  });
+  const [shareToastVersion, setShareToastVersion] = useState<number>(0);
   const [showCreditModal, setShowCreditModal] = useState<boolean>(false);
   const [openTopPanel, setOpenTopPanel] = useState<'preset' | 'layer' | null>(null);
   const [isLocating, setIsLocating] = useState<boolean>(false);
@@ -197,9 +221,29 @@ export const App: React.FC = () => {
     [getCacheForSource]
   );
 
-  // 初回マウント時に AW3D30 標高インスペクター用データを事前ロード
+  // 初回マウント時に AW3D30 標高インスペクター用データを事前ロード（共有URLの `name` 指定時は標高も即時取得）
   useEffect(() => {
     preloadCentralMountainElevation();
+    const urlState = initialUrlStateRef.current;
+    const preset = initialPresetResolutionRef.current.preset;
+    if (
+      urlState?.spotName &&
+      typeof urlState.lng === 'number' &&
+      typeof urlState.lat === 'number' &&
+      !(preset.elevation > 0)
+    ) {
+      const targetLng = urlState.lng;
+      const targetLat = urlState.lat;
+      fetchPointElevationFromAW3D(targetLng, targetLat).then((fetchedElev) => {
+        if (fetchedElev !== null) {
+          setInspectedPoint((prev) =>
+            prev && prev.lng === targetLng && prev.lat === targetLat
+              ? { ...prev, elevation: fetchedElev }
+              : prev
+          );
+        }
+      });
+    }
   }, []);
 
   // データソース ('jma-nowcast' ⇄ 'jaxa-gsmap') 切り替え・初期化＆バックグラウンドプリフェッチ
@@ -393,6 +437,7 @@ export const App: React.FC = () => {
       frameDate: activeFrame?.date,
       baseMap,
       exaggeration,
+      spotName: sharedSpotNameRef.current,
     });
   }, [timelineFrames, currentTimeIndex, rainSource, baseMap, exaggeration]);
 
@@ -415,6 +460,7 @@ export const App: React.FC = () => {
         frameDate: activeFrame?.date,
         baseMap,
         exaggeration,
+        spotName: sharedSpotNameRef.current,
       });
     }, 300);
   }, [timelineFrames, currentTimeIndex, rainSource, baseMap, exaggeration]);
@@ -475,6 +521,7 @@ export const App: React.FC = () => {
       const resolvedElevation =
         preset.elevation && preset.elevation > 0 ? preset.elevation : inspected.elevation;
 
+      sharedSpotNameRef.current = undefined;
       cameraViewRef.current = {
         lat,
         lng,
@@ -585,12 +632,82 @@ export const App: React.FC = () => {
     });
   }, []);
 
+  // 地点インスペクターからの地点名付きURL共有
+  const handleShareInspectorPoint = useCallback(
+    async (pointName: string) => {
+      if (!inspectedPoint) return;
+      const map = mapInstanceRef.current;
+      const currentZoom = map?.getZoom() ?? cameraViewRef.current.zoom;
+      const currentPitch = map?.getPitch() ?? cameraViewRef.current.pitch;
+      const currentBearing = map?.getBearing() ?? cameraViewRef.current.bearing;
+      const activeFrame = timelineFrames[currentTimeIndex];
+
+      sharedSpotNameRef.current = pointName;
+      const params = {
+        lat: inspectedPoint.lat,
+        lng: inspectedPoint.lng,
+        zoom: currentZoom,
+        pitch: currentPitch,
+        bearing: currentBearing,
+        rainSource,
+        frameDate: activeFrame?.date,
+        baseMap,
+        exaggeration,
+        spotName: pointName,
+      };
+      replaceUrlViewState(params);
+      const shareUrl = buildCustomDomainShareUrl(params);
+      const outcome = await shareOrCopyUrl({
+        url: shareUrl,
+        title: `${pointName} | 3D RainScape - リアルタイム雨雲×3D地形ビューア`,
+      });
+      if (outcome === 'copied') {
+        setShareToastVersion((v) => v + 1);
+      }
+    },
+    [inspectedPoint, timelineFrames, currentTimeIndex, rainSource, baseMap, exaggeration]
+  );
+
+  // お気に入り一覧からの地点名・登録視点付きURL共有
+  const handleShareFavorite = useCallback(
+    async (fav: PresetLocation) => {
+      const [lng, lat] = fav.center;
+      const activeFrame = timelineFrames[currentTimeIndex];
+      const params = {
+        lat,
+        lng,
+        zoom: fav.zoom,
+        pitch: fav.pitch,
+        bearing: fav.bearing,
+        rainSource,
+        frameDate: activeFrame?.date,
+        baseMap,
+        exaggeration,
+        spotName: fav.name,
+      };
+      const shareUrl = buildCustomDomainShareUrl(params);
+      const outcome = await shareOrCopyUrl({
+        url: shareUrl,
+        title: `${fav.name} | 3D RainScape - リアルタイム雨雲×3D地形ビューア`,
+      });
+      if (outcome === 'copied') {
+        setShareToastVersion((v) => v + 1);
+      }
+    },
+    [timelineFrames, currentTimeIndex, rainSource, baseMap, exaggeration]
+  );
+
   // 機能B-3: 地図クリック時のインスペクターカード表示・移動 (View Transitions API 連動)
-  const handleInspectPoint = useCallback((point: InspectorPoint) => {
-    runViewTransition(() => {
-      setInspectedPoint(point);
-    });
-  }, []);
+  const handleInspectPoint = useCallback(
+    (point: InspectorPoint) => {
+      sharedSpotNameRef.current = undefined;
+      scheduleUrlSync();
+      runViewTransition(() => {
+        setInspectedPoint(point);
+      });
+    },
+    [scheduleUrlSync]
+  );
 
   // GPS現在地へジャンプ（取得中の連打によるスマホ画面のダブルタップ拡大を抑止）
   const handleJumpToCurrentLocation = useCallback(() => {
@@ -605,6 +722,7 @@ export const App: React.FC = () => {
         const screenY =
           typeof window !== 'undefined' ? Math.round(window.innerHeight / 2) : undefined;
 
+        sharedSpotNameRef.current = undefined;
         // 現在の縮尺(zoom)・傾き(pitch)・方角(bearing)を維持したまま現在地へ移動
         mapInstanceRef.current?.flyTo({
           center: [longitude, latitude],
@@ -724,6 +842,7 @@ export const App: React.FC = () => {
             activePresetRain={activePresetRain}
             onSelectPreset={handleSelectPreset}
             onRemoveFavorite={handleRemoveFavorite}
+            onShareFavorite={handleShareFavorite}
             isOpen={openTopPanel === 'preset'}
             onToggleOpen={() =>
               runViewTransition(() =>
@@ -781,7 +900,10 @@ export const App: React.FC = () => {
             <span className="hidden sm:inline">{isLocating ? '取得中...' : '現在地'}</span>
           </button>
 
-          <ShareButton onFlushUrlState={flushUrlState} />
+          <ShareButton
+            onFlushUrlState={flushUrlState}
+            externalToastVersion={shareToastVersion}
+          />
 
           <button
             id="jaxa-credit-trigger-btn"
@@ -805,10 +927,15 @@ export const App: React.FC = () => {
       <div className="pointer-events-none fixed inset-0 z-20">
         <Inspector
           point={inspectedPoint}
-          onClose={() => runViewTransition(() => setInspectedPoint(null))}
+          onClose={() => {
+            sharedSpotNameRef.current = undefined;
+            scheduleUrlSync();
+            runViewTransition(() => setInspectedPoint(null));
+          }}
           matchedFavorite={matchedFavorite}
           onSaveFavorite={handleSaveFavorite}
           onRemoveFavorite={handleRemoveFavorite}
+          onSharePoint={handleShareInspectorPoint}
         />
       </div>
 

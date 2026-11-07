@@ -1,25 +1,24 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Share2 } from 'lucide-react';
-import { getShareableCustomDomainUrl } from '../lib/urlSync';
+import {
+  DEFAULT_SHARE_TITLE,
+  getShareableCustomDomainUrl,
+  shareOrCopyUrl,
+} from '../lib/urlSync';
 
 interface ShareButtonProps {
   /** 共有実行直前にデバウンス中のURL状態を即時フラッシュするためのコールバック */
   onFlushUrlState?: () => void;
+  /** インスペクターやお気に入り一覧から共有コピーされた際の外部トースト表示トリガー */
+  externalToastVersion?: number;
 }
 
-const SHARE_TITLE = '3D RainScape - リアルタイム雨雲×3D地形ビューア';
-
-export const ShareButton: React.FC<ShareButtonProps> = ({ onFlushUrlState }) => {
+export const ShareButton: React.FC<ShareButtonProps> = ({
+  onFlushUrlState,
+  externalToastVersion = 0,
+}) => {
   const [showToast, setShowToast] = useState<boolean>(false);
   const timerRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (timerRef.current !== null) {
-        window.clearTimeout(timerRef.current);
-      }
-    };
-  }, []);
 
   const triggerToast = useCallback(() => {
     setShowToast(true);
@@ -32,60 +31,31 @@ export const ShareButton: React.FC<ShareButtonProps> = ({ onFlushUrlState }) => 
     }, 2000);
   }, []);
 
-  const copyToClipboard = useCallback(async (text: string): Promise<boolean> => {
-    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-      try {
-        await navigator.clipboard.writeText(text);
-        return true;
-      } catch {
-        // フォールバックへ進む
+  useEffect(() => {
+    if (externalToastVersion > 0) {
+      triggerToast();
+    }
+  }, [externalToastVersion, triggerToast]);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current !== null) {
+        window.clearTimeout(timerRef.current);
       }
-    }
-    try {
-      const textarea = document.createElement('textarea');
-      textarea.value = text;
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
-      return true;
-    } catch {
-      return false;
-    }
+    };
   }, []);
 
   const handleShare = useCallback(async () => {
     onFlushUrlState?.();
     const shareUrl = getShareableCustomDomainUrl();
-
-    // モバイル端末等でネイティブシェアシートが利用可能な場合は優先呼び出し
-    const isMobileDevice =
-      typeof navigator !== 'undefined' &&
-      /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-
-    if (isMobileDevice && typeof navigator.share === 'function') {
-      try {
-        await navigator.share({
-          title: SHARE_TITLE,
-          url: shareUrl,
-        });
-        return;
-      } catch (err) {
-        // ユーザーによるキャンセル(AbortError)時は何もしない
-        if (err instanceof Error && err.name === 'AbortError') {
-          return;
-        }
-        // それ以外の失敗時はクリップボードコピーへフォールバック
-      }
-    }
-
-    const copied = await copyToClipboard(shareUrl);
-    if (copied) {
+    const outcome = await shareOrCopyUrl({
+      url: shareUrl,
+      title: DEFAULT_SHARE_TITLE,
+    });
+    if (outcome === 'copied') {
       triggerToast();
     }
-  }, [onFlushUrlState, copyToClipboard, triggerToast]);
+  }, [onFlushUrlState, triggerToast]);
 
   return (
     <>

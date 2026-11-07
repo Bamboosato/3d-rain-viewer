@@ -9,6 +9,8 @@ import {
   Star,
   Trash2,
   Loader2,
+  Share2,
+  Check,
 } from 'lucide-react';
 import type { PresetLocation } from '../types/map';
 import { AREA_GROUPS } from '../lib/hyakumeizanData';
@@ -27,6 +29,7 @@ interface PresetNavProps {
   activePresetRain?: number | null;
   onSelectPreset: (preset: PresetLocation) => void;
   onRemoveFavorite?: (id: string) => void;
+  onShareFavorite?: (preset: PresetLocation) => void;
   isOpen?: boolean;
   onToggleOpen?: () => void;
 }
@@ -37,6 +40,7 @@ export const PresetNav: React.FC<PresetNavProps> = ({
   activePreset,
   onSelectPreset,
   onRemoveFavorite,
+  onShareFavorite,
   isOpen: controlledIsOpen,
   onToggleOpen,
 }) => {
@@ -55,6 +59,7 @@ export const PresetNav: React.FC<PresetNavProps> = ({
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [osmResults, setOsmResults] = useState<OsmSearchLocation[]>([]);
   const [isSearchingOsm, setIsSearchingOsm] = useState<boolean>(false);
+  const [copiedFavoriteId, setCopiedFavoriteId] = useState<string | null>(null);
 
   const handleToggleOpen = () => {
     if (onToggleOpen) {
@@ -423,20 +428,50 @@ export const PresetNav: React.FC<PresetNavProps> = ({
                         </div>
                       </button>
 
-                      {onRemoveFavorite && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onRemoveFavorite(preset.id);
-                          }}
-                          title={`「${preset.name}」を削除`}
-                          aria-label={`「${preset.name}」を削除`}
-                          className="p-2 mr-1 rounded-lg text-slate-300 hover:text-rose-300 hover:bg-rose-500/20 transition-colors cursor-pointer shrink-0"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
+                      <div className="flex items-center gap-0.5 pr-1 shrink-0">
+                        {onShareFavorite && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onShareFavorite(preset);
+                              setCopiedFavoriteId(preset.id);
+                              window.setTimeout(() => {
+                                setCopiedFavoriteId((prev) =>
+                                  prev === preset.id ? null : prev
+                                );
+                              }, 2000);
+                            }}
+                            title={`「${preset.name}」の視点URLを共有`}
+                            aria-label={`「${preset.name}」の視点URLを共有`}
+                            className={`p-1.5 rounded-lg transition-colors cursor-pointer shrink-0 ${
+                              copiedFavoriteId === preset.id
+                                ? 'text-emerald-300 bg-emerald-500/25'
+                                : 'text-slate-300 hover:text-sky-300 hover:bg-sky-500/20'
+                            }`}
+                          >
+                            {copiedFavoriteId === preset.id ? (
+                              <Check className="w-3.5 h-3.5" />
+                            ) : (
+                              <Share2 className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        )}
+                        {onRemoveFavorite && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onRemoveFavorite(preset.id);
+                            }}
+                            title={`「${preset.name}」を削除`}
+                            aria-label={`「${preset.name}」を削除`}
+                            className="p-1.5 rounded-lg text-slate-300 hover:text-rose-300 hover:bg-rose-500/20 transition-colors cursor-pointer shrink-0"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   );
                 })}

@@ -10,6 +10,7 @@ import {
   Check,
   Loader2,
   Sparkles,
+  Share2,
 } from 'lucide-react';
 import type { InspectorPoint, PresetLocation } from '../types/map';
 import { fetchOsmPlaceCandidates, type OsmPlaceCandidate } from '../lib/osmPlaceClient';
@@ -20,6 +21,7 @@ interface InspectorProps {
   matchedFavorite?: PresetLocation | null;
   onSaveFavorite?: (name: string) => void;
   onRemoveFavorite?: (id: string) => void;
+  onSharePoint?: (pointName: string) => void;
 }
 
 function getRainfallIntensityInfo(mmPerHour: number): {
@@ -91,11 +93,13 @@ export const Inspector: React.FC<InspectorProps> = ({
   matchedFavorite = null,
   onSaveFavorite,
   onRemoveFavorite,
+  onSharePoint,
 }) => {
   const [isEditingFav, setIsEditingFav] = useState<boolean>(false);
   const [favNameInput, setFavNameInput] = useState<string>('');
   const [osmCandidates, setOsmCandidates] = useState<OsmPlaceCandidate[]>([]);
   const [isLoadingOsm, setIsLoadingOsm] = useState<boolean>(false);
+  const [isShareCopied, setIsShareCopied] = useState<boolean>(false);
   const hasUserEditedRef = useRef<boolean>(false);
 
   // 選択地点が変わったら入力フォームをリセットし、初期候補名をセット
@@ -103,6 +107,7 @@ export const Inspector: React.FC<InspectorProps> = ({
     setIsEditingFav(false);
     setOsmCandidates([]);
     setIsLoadingOsm(false);
+    setIsShareCopied(false);
     hasUserEditedRef.current = false;
     if (point) {
       setFavNameInput(matchedFavorite?.name ?? getSuggestedFavoriteName(point));
@@ -175,6 +180,17 @@ export const Inspector: React.FC<InspectorProps> = ({
     const trimmed = favNameInput.trim() || getSuggestedFavoriteName(point);
     onSaveFavorite?.(trimmed);
     setIsEditingFav(false);
+  };
+
+  const handleShareClick = () => {
+    if (!onSharePoint) return;
+    const shareName =
+      matchedFavorite?.name ||
+      (isEditingFav && favNameInput.trim() ? favNameInput.trim() : '') ||
+      getSuggestedFavoriteName(point);
+    onSharePoint(shareName);
+    setIsShareCopied(true);
+    window.setTimeout(() => setIsShareCopied(false), 2000);
   };
 
   return (
@@ -256,23 +272,46 @@ export const Inspector: React.FC<InspectorProps> = ({
         </div>
       </div>
 
-      {/* お気に入り登録・編集エリア */}
+      {/* お気に入り登録・編集・地点共有エリア */}
       {onSaveFavorite && (
         <div className="pt-1">
           {!isEditingFav && !matchedFavorite && (
-            <button
-              type="button"
-              id="inspector-fav-open-btn"
-              onClick={() => {
-                hasUserEditedRef.current = false;
-                setFavNameInput(getSuggestedFavoriteName(point));
-                setIsEditingFav(true);
-              }}
-              className="w-full inline-flex items-center justify-center gap-1.5 min-h-[40px] px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-amber-200 text-sm font-bold transition-colors cursor-pointer truncate"
-            >
-              <Star className="w-4 h-4 text-amber-400 shrink-0" />
-              <span>お気に入りに追加</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                id="inspector-fav-open-btn"
+                onClick={() => {
+                  hasUserEditedRef.current = false;
+                  setFavNameInput(getSuggestedFavoriteName(point));
+                  setIsEditingFav(true);
+                }}
+                className="flex-1 inline-flex items-center justify-center gap-1.5 min-h-[40px] px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-amber-200 text-sm font-bold transition-colors cursor-pointer truncate"
+              >
+                <Star className="w-4 h-4 text-amber-400 shrink-0" />
+                <span className="truncate">お気に入りに追加</span>
+              </button>
+
+              {onSharePoint && (
+                <button
+                  type="button"
+                  id="inspector-share-btn"
+                  onClick={handleShareClick}
+                  title="この地点を共有"
+                  aria-label="この地点を共有"
+                  className={`inline-flex items-center justify-center w-10 h-10 rounded-xl border transition-colors cursor-pointer shrink-0 ${
+                    isShareCopied
+                      ? 'bg-emerald-500/25 border-emerald-400/60 text-emerald-300'
+                      : 'bg-sky-500/20 hover:bg-sky-500/30 border-sky-400/40 text-sky-300'
+                  }`}
+                >
+                  {isShareCopied ? (
+                    <Check className="w-4 h-4" />
+                  ) : (
+                    <Share2 className="w-4 h-4" />
+                  )}
+                </button>
+              )}
+            </div>
           )}
 
           {!isEditingFav && matchedFavorite && (
@@ -291,6 +330,27 @@ export const Inspector: React.FC<InspectorProps> = ({
                 <Star className="w-4 h-4 text-amber-400 fill-amber-400 shrink-0" />
                 <span className="truncate">名前・視点を更新</span>
               </button>
+
+              {onSharePoint && (
+                <button
+                  type="button"
+                  id="inspector-share-btn"
+                  onClick={handleShareClick}
+                  title={`「${matchedFavorite.name}」を共有`}
+                  aria-label={`「${matchedFavorite.name}」を共有`}
+                  className={`inline-flex items-center justify-center w-10 h-10 rounded-xl border transition-colors cursor-pointer shrink-0 ${
+                    isShareCopied
+                      ? 'bg-emerald-500/25 border-emerald-400/60 text-emerald-300'
+                      : 'bg-sky-500/20 hover:bg-sky-500/30 border-sky-400/40 text-sky-300'
+                  }`}
+                >
+                  {isShareCopied ? (
+                    <Check className="w-4 h-4" />
+                  ) : (
+                    <Share2 className="w-4 h-4" />
+                  )}
+                </button>
+              )}
 
               {onRemoveFavorite && (
                 <button
