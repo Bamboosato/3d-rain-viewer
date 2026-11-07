@@ -341,12 +341,15 @@ export const App: React.FC = () => {
     return () => window.clearInterval(timer);
   }, [isPlaying, playbackSpeed, currentTimeIndex, timelineFrames.length, handleSelectTimeIndex]);
 
-  // 山岳プリセット切替 (View Transitions API 連動 + 山頂インスペクター自動表示)
-  const handleSelectPreset = useCallback((preset: PresetLocation) => {
+  // 山岳プリセット・お気に入り・検索地点切替 (View Transitions API 連動 + インスペクター自動表示)
+  const handleSelectPreset = useCallback(async (preset: PresetLocation) => {
     const [lng, lat] = preset.center;
     const inspected = inspectLocationValues(lng, lat);
     const screenX = typeof window !== 'undefined' ? Math.round(window.innerWidth / 2) : undefined;
     const screenY = typeof window !== 'undefined' ? Math.round(window.innerHeight / 2) : undefined;
+    const isOsmSearch = preset.id.startsWith('osm-search-');
+    const resolvedElevation =
+      preset.elevation && preset.elevation > 0 ? preset.elevation : inspected.elevation;
 
     mapInstanceRef.current?.flyTo({
       center: preset.center,
@@ -364,13 +367,26 @@ export const App: React.FC = () => {
       setInspectedPoint({
         lng,
         lat,
-        elevation: preset.elevation ?? inspected.elevation,
+        elevation: resolvedElevation,
         precipitation: inspected.precipitation ?? 0,
         screenX,
         screenY,
-        label: preset.isFavorite ? `⭐ ${preset.name}` : `${preset.emoji} ${preset.name}（山頂）`,
+        label: preset.isFavorite
+          ? `⭐ ${preset.name}`
+          : isOsmSearch
+            ? `${preset.emoji} ${preset.name}`
+            : `${preset.emoji} ${preset.name}（山頂）`,
       });
     });
+
+    if (resolvedElevation === null) {
+      const fetchedElev = await fetchPointElevationFromAW3D(lng, lat);
+      if (fetchedElev !== null) {
+        setInspectedPoint((prev) =>
+          prev && prev.lng === lng && prev.lat === lat ? { ...prev, elevation: fetchedElev } : prev
+        );
+      }
+    }
   }, []);
 
   // 現在インスペクターで表示中の地点が既にお気に入り登録済みか判定

@@ -548,3 +548,191 @@ export async function fetchOsmPlaceCandidates(
 
   return finalCandidates;
 }
+
+export interface OsmSearchLocation {
+  id: string;
+  name: string;
+  subLabel: string;
+  category: string;
+  emoji: string;
+  lat: number;
+  lng: number;
+  recommendedZoom: number;
+}
+
+interface NominatimSearchItem {
+  place_id: number;
+  osm_id?: number;
+  lat: string;
+  lon: string;
+  name?: string;
+  display_name?: string;
+  category?: string;
+  type?: string;
+  address?: Record<string, string>;
+}
+
+const NOMINATIM_SEARCH_URL = 'https://nominatim.openstreetmap.org/search';
+const searchResultCache = new Map<string, { items: OsmSearchLocation[]; timestamp: number }>();
+
+function classifyNominatimSearchResult(
+  category?: string,
+  type?: string
+): { label: string; emoji: string; zoom: number } {
+  if (
+    category === 'natural' &&
+    ['peak', 'volcano', 'mountain_range', 'ridge', 'saddle', 'cliff'].includes(type ?? '')
+  ) {
+    return { label: '山岳', emoji: '⛰️', zoom: 12.2 };
+  }
+  if (category === 'natural') {
+    return { label: '自然', emoji: '🌿', zoom: 12.8 };
+  }
+  if (type === 'alpine_hut' || type === 'wilderness_hut') {
+    return { label: '山小屋', emoji: '🛖', zoom: 13.8 };
+  }
+  if (type === 'camp_site' || type === 'caravan_site') {
+    return { label: 'キャンプ場', emoji: '⛺', zoom: 13.8 };
+  }
+  if (category === 'railway' || type === 'station' || type === 'halt') {
+    return { label: '駅', emoji: '🚉', zoom: 13.8 };
+  }
+  if (category === 'aeroway' || type === 'aerodrome') {
+    return { label: '空港', emoji: '✈️', zoom: 12.5 };
+  }
+  if (category === 'tourism' || category === 'historic') {
+    return { label: '観光・名所', emoji: '📍', zoom: 13.5 };
+  }
+  if (category === 'leisure') {
+    return { label: '公園・施設', emoji: '🏞️', zoom: 13.5 };
+  }
+  if (category === 'place' || category === 'boundary') {
+    const isBroad = ['state', 'province', 'region', 'island', 'county'].includes(type ?? '');
+    const isCity = ['city', 'town', 'village', 'municipality', 'ward', 'administrative'].includes(
+      type ?? ''
+    );
+    return {
+      label: '地名',
+      emoji: '🗺️',
+      zoom: isBroad ? 9.5 : isCity ? 11.2 : 12.8,
+    };
+  }
+  return { label: '施設', emoji: '📍', zoom: 13.5 };
+}
+
+function buildSubLabel(
+  primaryName: string,
+  address?: Record<string, string>,
+  displayName?: string
+): string {
+  if (address) {
+    const pref = address.province || address.state || '';
+    const city =
+      address.city || address.town || address.village || address.municipality || address.county || '';
+    const ward = address.city_district || address.ward || '';
+    const area = address.suburb || address.quarter || address.neighbourhood || '';
+
+    const parts = [pref, city, ward, area]
+      .map((s) => s.trim())
+      .filter((s, idx, arr) => s.length > 0 && s !== primaryName && arr.indexOf(s) === idx);
+
+    if (parts.length > 0) {
+      return parts.join(' ');
+    }
+  }
+
+  if (displayName) {
+    const segments = displayName
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s && s !== '日本' && !/^\d{3}-?\d{4}$/.test(s) && s !== primaryName);
+    return segments.slice(0, 2).reverse().join(' ');
+  }
+
+  return '日本';
+}
+
+/**
+ * キーワードから OpenStreetMap (Nominatim Search API) を検索し、全国の地名・施設・山岳・駅の候補リストを返します。
+ */
+export async function searchOsmLocationsByKeyword(
+  query: string,
+  signal?: AbortSignal
+): Promise<OsmSearchLocation[]> {
+  const trimmed = query.trim();
+  if (!trimmed) return [];
+
+  const cacheKey = trimmed.toLowerCase();
+  const cached = searchResultCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return cached.items;
+  }
+
+  const url = new URL(NOMINATIM_SEARCH_URL);
+  url.searchParams.set('format', 'jsonv2');
+  url.searchParams.set('q', trimmed);
+  url.searchParams.set('countrycodes', 'jp');
+  url.searchParams.set('addressdetails', '1');
+  url.searchParams.set('limit', '12');
+  url.searchParams.set('accept-language', 'ja');
+
+  const res = await fetch(url.toString(), {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+    },
+    signal,
+  });
+
+  if (!res.ok) {
+    throw new Error(`Nominatim Search HTTP ${res.status}`);
+  }
+
+  const rawItems = (await res.json()) as NominatimSearchItem[];
+  const results: OsmSearchLocation[] = [];
+
+  for (const item of rawItems) {
+    const lat = Number(item.lat);
+    const lng = Number(item.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+
+    const primaryName = (
+      item.name ||
+      item.display_name?.split(',')[0] ||
+      trimmed
+    ).trim();
+    if (!primaryName) continue;
+
+    const subLabel = buildSubLabel(primaryName, item.address, item.display_name);
+    const meta = classifyNominatimSearchResult(item.category, item.type);
+
+    // 同一名称かつごく近い距離の重複候補を除外
+    const isDuplicate = results.some(
+      (r) =>
+        r.name === primaryName &&
+        (r.subLabel === subLabel || calcDistanceMeters(lat, lng, r.lat, r.lng) < 400)
+    );
+    if (isDuplicate) continue;
+
+    results.push({
+      id: `osm-search-${item.place_id}`,
+      name: primaryName,
+      subLabel,
+      category: meta.label,
+      emoji: meta.emoji,
+      lat,
+      lng,
+      recommendedZoom: meta.zoom,
+    });
+
+    if (results.length >= 8) break;
+  }
+
+  searchResultCache.set(cacheKey, {
+    items: results,
+    timestamp: Date.now(),
+  });
+
+  return results;
+}
+
