@@ -27,9 +27,17 @@ interface MapViewerProps {
   baseMap: BaseMapId;
   rainLayerData: GSMaPRainLayerResult | null;
   inspectedPoint: InspectorPoint | null;
+  skipInitialGeolocation?: boolean;
   onStatusChange: (status: WebGPUStatus) => void;
   onInspectPoint: (point: InspectorPoint) => void;
   onSelectFavorite?: (preset: PresetLocation) => void;
+  onCameraChange?: (view: {
+    lat: number;
+    lng: number;
+    zoom: number;
+    pitch: number;
+    bearing: number;
+  }) => void;
   mapInstanceRef?: React.MutableRefObject<maplibregl.Map | null>;
 }
 
@@ -41,9 +49,11 @@ export const MapViewer: React.FC<MapViewerProps> = ({
   baseMap,
   rainLayerData,
   inspectedPoint,
+  skipInitialGeolocation = false,
   onStatusChange,
   onInspectPoint,
   onSelectFavorite,
+  onCameraChange,
   mapInstanceRef,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -51,19 +61,21 @@ export const MapViewer: React.FC<MapViewerProps> = ({
   const markerRef = useRef<maplibregl.Marker | null>(null);
   const favoriteMarkersRef = useRef<maplibregl.Marker[]>([]);
   const isMapLoadedRef = useRef<boolean>(false);
-  const hasUserMovedOrSelectedRef = useRef<boolean>(false);
+  const hasUserMovedOrSelectedRef = useRef<boolean>(skipInitialGeolocation);
   const initialPresetIdRef = useRef<string>(activePreset.id);
   const latestRainOpacityRef = useRef<number>(rainOpacity);
   const latestExaggerationRef = useRef<number>(exaggeration);
   const latestFavoritesRef = useRef<PresetLocation[]>(favorites);
   const onInspectPointRef = useRef(onInspectPoint);
   const onSelectFavoriteRef = useRef(onSelectFavorite);
+  const onCameraChangeRef = useRef(onCameraChange);
 
   latestRainOpacityRef.current = rainOpacity;
   latestExaggerationRef.current = exaggeration;
   latestFavoritesRef.current = favorites;
   onInspectPointRef.current = onInspectPoint;
   onSelectFavoriteRef.current = onSelectFavorite;
+  onCameraChangeRef.current = onCameraChange;
 
   const renderFavoriteMarkers = (map: maplibregl.Map, favList: PresetLocation[]) => {
     for (const m of favoriteMarkersRef.current) {
@@ -120,8 +132,8 @@ export const MapViewer: React.FC<MapViewerProps> = ({
 
     let pendingInitialCenter: [number, number] | null = null;
 
-    // 初期表示時: 位置情報が取得できる場合は現在位置を中心に表示する
-    if (typeof navigator !== 'undefined' && navigator.geolocation) {
+    // 初期表示時: URLパラメータによる視点指定がなく、位置情報が取得できる場合は現在位置を中心に表示する
+    if (!skipInitialGeolocation && typeof navigator !== 'undefined' && navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           if (disposed || hasUserMovedOrSelectedRef.current) return;
@@ -180,6 +192,20 @@ export const MapViewer: React.FC<MapViewerProps> = ({
       };
       updateFavZoomMode();
       map.on('zoom', updateFavZoomMode);
+
+      // カメラ移動完了時に現在の3D視点パラメータを通知（URL同期用）
+      const emitCameraView = () => {
+        if (disposed) return;
+        const center = map.getCenter();
+        onCameraChangeRef.current?.({
+          lat: center.lat,
+          lng: center.lng,
+          zoom: map.getZoom(),
+          pitch: map.getPitch(),
+          bearing: map.getBearing(),
+        });
+      };
+      map.on('moveend', emitCameraView);
 
       renderFavoriteMarkers(map, latestFavoritesRef.current);
 

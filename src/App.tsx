@@ -14,6 +14,7 @@ import { LayerMenu } from './components/LayerMenu';
 import { Legend } from './components/Legend';
 import { Inspector } from './components/Inspector';
 import { TimelineBar } from './components/TimelineBar';
+import { ShareButton } from './components/ShareButton';
 import { PRESET_LOCATIONS } from './lib/maplibreHelper';
 import {
   fetchGSMaPRainLayer,
@@ -35,6 +36,12 @@ import {
   loadFavoriteLocations,
   saveFavoriteLocations,
 } from './lib/favoritesStorage';
+import {
+  parseUrlViewState,
+  replaceUrlViewState,
+  resolveFrameIndexFromTimeParam,
+  resolveInitialPresetFromUrl,
+} from './lib/urlSync';
 import { runViewTransition } from './lib/viewTransition';
 import type {
   BaseMapId,
@@ -46,12 +53,33 @@ import type {
 } from './types/map';
 
 export const App: React.FC = () => {
-  const [activePreset, setActivePreset] = useState<PresetLocation>(PRESET_LOCATIONS[0]);
+  const initialFavoritesRef = useRef<PresetLocation[] | null>(null);
+  if (initialFavoritesRef.current === null) {
+    initialFavoritesRef.current = loadFavoriteLocations();
+  }
+  const initialUrlStateRef = useRef(parseUrlViewState());
+  const initialPresetResolutionRef = useRef(
+    resolveInitialPresetFromUrl(initialUrlStateRef.current, initialFavoritesRef.current)
+  );
+  const pendingUrlTimeParamRef = useRef<string | undefined>(initialUrlStateRef.current?.timeParam);
+
+  const [favorites, setFavorites] = useState<PresetLocation[]>(
+    () => initialFavoritesRef.current ?? []
+  );
+  const [activePreset, setActivePreset] = useState<PresetLocation>(
+    () => initialPresetResolutionRef.current.preset
+  );
   // 機能C-2: 標高強調デフォルト 1.5倍、雨雲透過度デフォルト 70% (0.7)
-  const [exaggeration, setExaggeration] = useState<number>(1.5);
+  const [exaggeration, setExaggeration] = useState<number>(
+    () => initialUrlStateRef.current?.exaggeration ?? 1.5
+  );
   const [rainOpacity, setRainOpacity] = useState<number>(0.7);
-  const [baseMap, setBaseMap] = useState<BaseMapId>('osm');
-  const [rainSource, setRainSource] = useState<RainSourceId>('jma-nowcast');
+  const [baseMap, setBaseMap] = useState<BaseMapId>(
+    () => initialUrlStateRef.current?.baseMap ?? 'osm'
+  );
+  const [rainSource, setRainSource] = useState<RainSourceId>(
+    () => initialUrlStateRef.current?.rainSource ?? 'jma-nowcast'
+  );
 
   const [timelineFrames, setTimelineFrames] = useState<TimelineFrameItem[]>([]);
   const [currentTimeIndex, setCurrentTimeIndex] = useState<number>(0);
@@ -64,13 +92,22 @@ export const App: React.FC = () => {
   const [activePresetRain, setActivePresetRain] = useState<number | null>(null);
 
   const [inspectedPoint, setInspectedPoint] = useState<InspectorPoint | null>(null);
-  const [favorites, setFavorites] = useState<PresetLocation[]>(() => loadFavoriteLocations());
   const [showCreditModal, setShowCreditModal] = useState<boolean>(false);
   const [openTopPanel, setOpenTopPanel] = useState<'preset' | 'layer' | null>(null);
   const [isLocating, setIsLocating] = useState<boolean>(false);
   const [installPromptEvent, setInstallPromptEvent] = useState<
     (Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> }) | null
   >(null);
+
+  // 最新カメラ状態（URLクエリ双方向同期用）
+  const cameraViewRef = useRef({
+    lat: initialPresetResolutionRef.current.preset.center[1],
+    lng: initialPresetResolutionRef.current.preset.center[0],
+    zoom: initialPresetResolutionRef.current.preset.zoom,
+    pitch: initialPresetResolutionRef.current.preset.pitch,
+    bearing: initialPresetResolutionRef.current.preset.bearing,
+  });
+  const urlSyncTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     const handleBeforeInstallPrompt = (e: Event) => {
@@ -213,12 +250,23 @@ export const App: React.FC = () => {
 
         if (!mounted) return;
 
+        // 初回起動時にURLの `t` パラメータが指定されていれば該当時刻のフレームを選択
+        let targetIdx = defaultIdx;
+        if (pendingUrlTimeParamRef.current !== undefined) {
+          targetIdx = resolveFrameIndexFromTimeParam(
+            pendingUrlTimeParamRef.current,
+            frames,
+            defaultIdx
+          );
+          pendingUrlTimeParamRef.current = undefined;
+        }
+
         const cacheMap = getCacheForSource(activeSource);
         setTimelineFrames(frames);
-        setCurrentTimeIndex(defaultIdx);
+        setCurrentTimeIndex(targetIdx);
         setCachedCount(cacheMap.size);
 
-        const initialRain = await loadFrameAtIndex(activeSource, defaultIdx, frames, true);
+        const initialRain = await loadFrameAtIndex(activeSource, targetIdx, frames, true);
         if (!mounted || !initialRain) return;
 
         setRainLayerData(initialRain);
@@ -239,7 +287,7 @@ export const App: React.FC = () => {
         // 全フレームをバックグラウンドで順次プリフェッチ（フリッカーレス高速再生用）
         for (let offset = 1; offset < frames.length; offset++) {
           if (!mounted) break;
-          const idx = (defaultIdx + offset) % frames.length;
+          const idx = (targetIdx + offset) % frames.length;
           if (!cacheMap.has(idx)) {
             try {
               await loadFrameAtIndex(activeSource, idx, frames, false);
@@ -316,6 +364,80 @@ export const App: React.FC = () => {
     [timelineFrames, rainSource, activePreset.center, getCacheForSource, loadFrameAtIndex]
   );
 
+  // URLパラメータを即座に最新状態へ同期（共有ボタン押下時の即時フラッシュにも使用）
+  const flushUrlState = useCallback(() => {
+    if (urlSyncTimerRef.current !== null) {
+      window.clearTimeout(urlSyncTimerRef.current);
+      urlSyncTimerRef.current = null;
+    }
+    const map = mapInstanceRef.current;
+    if (map) {
+      const c = map.getCenter();
+      cameraViewRef.current = {
+        lat: c.lat,
+        lng: c.lng,
+        zoom: map.getZoom(),
+        pitch: map.getPitch(),
+        bearing: map.getBearing(),
+      };
+    }
+    const cam = cameraViewRef.current;
+    const activeFrame = timelineFrames[currentTimeIndex];
+    replaceUrlViewState({
+      lat: cam.lat,
+      lng: cam.lng,
+      zoom: cam.zoom,
+      pitch: cam.pitch,
+      bearing: cam.bearing,
+      rainSource,
+      frameDate: activeFrame?.date,
+      baseMap,
+      exaggeration,
+    });
+  }, [timelineFrames, currentTimeIndex, rainSource, baseMap, exaggeration]);
+
+  // 300msデバウンスで window.history.replaceState を実行
+  const scheduleUrlSync = useCallback(() => {
+    if (urlSyncTimerRef.current !== null) {
+      window.clearTimeout(urlSyncTimerRef.current);
+    }
+    urlSyncTimerRef.current = window.setTimeout(() => {
+      urlSyncTimerRef.current = null;
+      const cam = cameraViewRef.current;
+      const activeFrame = timelineFrames[currentTimeIndex];
+      replaceUrlViewState({
+        lat: cam.lat,
+        lng: cam.lng,
+        zoom: cam.zoom,
+        pitch: cam.pitch,
+        bearing: cam.bearing,
+        rainSource,
+        frameDate: activeFrame?.date,
+        baseMap,
+        exaggeration,
+      });
+    }, 300);
+  }, [timelineFrames, currentTimeIndex, rainSource, baseMap, exaggeration]);
+
+  // タイムライン時刻・データソース・背景地図・標高強調が変化した際も300msデバウンスでURLを更新
+  useEffect(() => {
+    scheduleUrlSync();
+    return () => {
+      if (urlSyncTimerRef.current !== null) {
+        window.clearTimeout(urlSyncTimerRef.current);
+      }
+    };
+  }, [scheduleUrlSync]);
+
+  // MapViewer の moveend イベントから呼ばれるカメラ変更ハンドラ
+  const handleCameraChange = useCallback(
+    (view: { lat: number; lng: number; zoom: number; pitch: number; bearing: number }) => {
+      cameraViewRef.current = view;
+      scheduleUrlSync();
+    },
+    [scheduleUrlSync]
+  );
+
   // 雨雲データソース切り替えハンドラ (View Transitions API 連動)
   const handleChangeRainSource = useCallback(
     (nextSource: RainSourceId) => {
@@ -342,52 +464,65 @@ export const App: React.FC = () => {
   }, [isPlaying, playbackSpeed, currentTimeIndex, timelineFrames.length, handleSelectTimeIndex]);
 
   // 山岳プリセット・お気に入り・検索地点切替 (View Transitions API 連動 + インスペクター自動表示)
-  const handleSelectPreset = useCallback(async (preset: PresetLocation) => {
-    const [lng, lat] = preset.center;
-    const inspected = inspectLocationValues(lng, lat);
-    const screenX = typeof window !== 'undefined' ? Math.round(window.innerWidth / 2) : undefined;
-    const screenY = typeof window !== 'undefined' ? Math.round(window.innerHeight / 2) : undefined;
-    const isOsmSearch = preset.id.startsWith('osm-search-');
-    const resolvedElevation =
-      preset.elevation && preset.elevation > 0 ? preset.elevation : inspected.elevation;
+  const handleSelectPreset = useCallback(
+    async (preset: PresetLocation) => {
+      const [lng, lat] = preset.center;
+      const inspected = inspectLocationValues(lng, lat);
+      const screenX = typeof window !== 'undefined' ? Math.round(window.innerWidth / 2) : undefined;
+      const screenY =
+        typeof window !== 'undefined' ? Math.round(window.innerHeight / 2) : undefined;
+      const isOsmSearch = preset.id.startsWith('osm-search-');
+      const resolvedElevation =
+        preset.elevation && preset.elevation > 0 ? preset.elevation : inspected.elevation;
 
-    mapInstanceRef.current?.flyTo({
-      center: preset.center,
-      zoom: preset.zoom,
-      pitch: preset.pitch,
-      bearing: preset.bearing,
-      duration: 1800,
-      essential: true,
-    });
-
-    runViewTransition(() => {
-      setOpenTopPanel(null);
-      setActivePreset(preset);
-      setActivePresetRain(inspected.precipitation ?? 0);
-      setInspectedPoint({
-        lng,
+      cameraViewRef.current = {
         lat,
-        elevation: resolvedElevation,
-        precipitation: inspected.precipitation ?? 0,
-        screenX,
-        screenY,
-        label: preset.isFavorite
-          ? `⭐ ${preset.name}`
-          : isOsmSearch
-            ? `${preset.emoji} ${preset.name}`
-            : `${preset.emoji} ${preset.name}（山頂）`,
-      });
-    });
+        lng,
+        zoom: preset.zoom,
+        pitch: preset.pitch,
+        bearing: preset.bearing,
+      };
+      scheduleUrlSync();
 
-    if (resolvedElevation === null) {
-      const fetchedElev = await fetchPointElevationFromAW3D(lng, lat);
-      if (fetchedElev !== null) {
-        setInspectedPoint((prev) =>
-          prev && prev.lng === lng && prev.lat === lat ? { ...prev, elevation: fetchedElev } : prev
-        );
+      mapInstanceRef.current?.flyTo({
+        center: preset.center,
+        zoom: preset.zoom,
+        pitch: preset.pitch,
+        bearing: preset.bearing,
+        duration: 1800,
+        essential: true,
+      });
+
+      runViewTransition(() => {
+        setOpenTopPanel(null);
+        setActivePreset(preset);
+        setActivePresetRain(inspected.precipitation ?? 0);
+        setInspectedPoint({
+          lng,
+          lat,
+          elevation: resolvedElevation,
+          precipitation: inspected.precipitation ?? 0,
+          screenX,
+          screenY,
+          label: preset.isFavorite
+            ? `⭐ ${preset.name}`
+            : isOsmSearch
+              ? `${preset.emoji} ${preset.name}`
+              : `${preset.emoji} ${preset.name}（山頂）`,
+        });
+      });
+
+      if (resolvedElevation === null) {
+        const fetchedElev = await fetchPointElevationFromAW3D(lng, lat);
+        if (fetchedElev !== null) {
+          setInspectedPoint((prev) =>
+            prev && prev.lng === lng && prev.lat === lat ? { ...prev, elevation: fetchedElev } : prev
+          );
+        }
       }
-    }
-  }, []);
+    },
+    [scheduleUrlSync]
+  );
 
   // 現在インスペクターで表示中の地点が既にお気に入り登録済みか判定
   const matchedFavorite = useMemo(() => {
@@ -542,9 +677,11 @@ export const App: React.FC = () => {
         baseMap={baseMap}
         rainLayerData={rainLayerData}
         inspectedPoint={inspectedPoint}
+        skipInitialGeolocation={initialPresetResolutionRef.current.isFromUrl}
         onStatusChange={setGpuStatus}
         onInspectPoint={handleInspectPoint}
         onSelectFavorite={handleSelectPreset}
+        onCameraChange={handleCameraChange}
         mapInstanceRef={mapInstanceRef}
       />
 
@@ -578,7 +715,7 @@ export const App: React.FC = () => {
           </div>
         </div>
 
-        {/* 右上操作ボタン群（百名山プリセット・表示調整・現在地・アプリ追加・情報アイコンを一列に集約） */}
+        {/* 右上操作ボタン群（百名山プリセット・表示調整・現在地・共有・アプリ追加・情報アイコンを一列に集約） */}
         <div className="pointer-events-auto flex items-center justify-end gap-1.5 sm:gap-2 min-w-0 flex-1">
           <PresetNav
             presets={PRESET_LOCATIONS}
@@ -643,6 +780,8 @@ export const App: React.FC = () => {
             />
             <span className="hidden sm:inline">{isLocating ? '取得中...' : '現在地'}</span>
           </button>
+
+          <ShareButton onFlushUrlState={flushUrlState} />
 
           <button
             id="jaxa-credit-trigger-btn"

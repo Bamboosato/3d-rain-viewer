@@ -76,6 +76,7 @@ VercelのグローバルCDNから静的アセットを配信し、大容量の�
 3d-rain-viewer/
 ├── public/
 │   ├── icon.svg            # アプリアイコン
+│   ├── og-image.jpg        # SNS共有用 OGPカード画像 (1200x630)
 │   ├── manifest.webmanifest# PWAマニフェスト定義
 │   └── sw.js               # Service Worker（PWAオフライン対応）
 ├── src/
@@ -83,8 +84,9 @@ VercelのグローバルCDNから静的アセットを配信し、大容量の�
 │   ├── components/
 │   │   ├── MapViewer.tsx   # 3D地図本体（WebGPU / AW3D30 / 雨雲レイヤー / お気に入り★マーカー）
 │   │   ├── TimelineBar.tsx # 時系列再生・シークバー（過去・現在・予測固定ラベル）
-│   │   ├── PresetNav.tsx   # 日本百名山（全100座）＆お気に入り地点選択（View Transitions連動）
+│   │   ├── PresetNav.tsx   # 3タブ統合ナビゲーション（百名山・お気に入り・地名施設検索）
 │   │   ├── LayerMenu.tsx   # 設定メニュー（立体感・雨雲濃さ・背景地図・雨雲データソース）
+│   │   ├── ShareButton.tsx # 3D視点ワンタップ共有ボタン＆トースト通知
 │   │   ├── Inspector.tsx   # 地点クリック時の詳細情報カード（標高・雨量・お気に入り登録）
 │   │   └── Legend.tsx      # 降雨強度カラーバー凡例
 │   ├── lib/
@@ -92,7 +94,8 @@ VercelのグローバルCDNから静的アセットを配信し、大容量の�
 │   │   ├── jaxaClient.ts       # JAXA Earth API（AW3D30 / GSMaP）接続ラッパー
 │   │   ├── hyakumeizanData.ts  # 日本百名山 全100座の山岳データ（山域・都道府県・標高・座標）
 │   │   ├── favoritesStorage.ts # お気に入り地点のlocalStorage永続化＆カメラ設定管理
-│   │   ├── osmPlaceClient.ts   # OpenStreetMap (Overpass + Nominatim) 施設名・地名候補取得クライアント
+│   │   ├── osmPlaceClient.ts   # OpenStreetMap (Overpass + Nominatim) 施設・地名検索クライアント
+│   │   ├── urlSync.ts          # URLクエリパラメータ双方向同期＆共有リンク生成
 │   │   ├── maplibreHelper.ts   # WebGPU 3D地形・プロトコル登録・カメラ制御
 │   │   └── viewTransition.ts   # document.startViewTransition ユーティリティ
 │   ├── types/
@@ -103,7 +106,7 @@ VercelのグローバルCDNから静的アセットを配信し、大容量の�
 │   └── index.css           # Tailwindディレクティブ ＋ セーフエリア ＋ View Transitionsスタイル
 ├── docs/
 │   └── requirements_definition_3d_rain_viewer.md # 本要件定義書
-├── index.html              # HTMLエントリーポイント & モバイルビューポート設定
+├── index.html              # HTMLエントリーポイント & OGP / モバイルビューポート設定
 ├── package.json
 ├── tsconfig.json
 ├── tailwind.config.js
@@ -160,6 +163,10 @@ VercelのグローバルCDNから静的アセットを配信し、大容量の�
   - **直接選択**: 地図上のマーカータップで該当視点へ即座にカメラ移動し、インスペクターを開く。
 - **F-Nav-06: GPS現在地ジャンプ**  
   ユーザーが調整した現在の縮尺・傾き・方角を維持したまま現在地へスムーズ移動し、地点インスペクターを自動表示する。連打による画面拡大防止およびローディング回転アニメーションを搭載。
+- **F-Nav-07: 🔗 URLクエリパラメータ双方向同期 & 3D視点ワンタップ共有**  
+  - 初期起動時に URL クエリパラメータ（`lat`, `lng`, `z`, `p`, `b`, `t`, `src`, `map`, `ex`）を解析して3Dカメラアングルと観測時刻・データソースを復元。
+  - カメラ移動（`moveend`）やタイムライン操作のたびに300msデバウンス＋`window.history.replaceState` でURLを更新。
+  - ヘッダーの共有ボタン（`ShareButton`）からカスタムドメイン（`https://3d-rain-viewer.bamboosato.com`）の共有URLをネイティブシェアまたはクリップボードコピー＋トースト通知で共有可能。OGP / X Card 画像（`og-image.jpg`）も完備。
 
 ### 6.5 詳細インスペクター機能 (F-Insp)
 - **F-Insp-01: 地点詳細カード**  
