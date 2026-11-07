@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Compass,
   Mountain,
@@ -55,11 +55,20 @@ export const PresetNav: React.FC<PresetNavProps> = ({
   );
   const [selectedPrefecture, setSelectedPrefecture] = useState<string>('ALL');
 
-  // 「🔍 検索」タブ専用の状態
+  // 「🔍 検索」タブ専用の状態（文字入力 ➔ 検索ボタン押下で検索実行）
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [submittedQuery, setSubmittedQuery] = useState<string>('');
   const [osmResults, setOsmResults] = useState<OsmSearchLocation[]>([]);
   const [isSearchingOsm, setIsSearchingOsm] = useState<boolean>(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const [copiedFavoriteId, setCopiedFavoriteId] = useState<string | null>(null);
+  const searchAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      searchAbortRef.current?.abort();
+    };
+  }, []);
 
   const handleToggleOpen = () => {
     if (onToggleOpen) {
@@ -108,9 +117,9 @@ export const PresetNav: React.FC<PresetNavProps> = ({
     });
   }, [areaFilteredPresets, selectedPrefecture]);
 
-  // 「🔍 検索」タブ用：お気に入り＋百名山からのローカル即時一致（最大6件）
+  // 「🔍 検索」タブ用：確定された検索語でお気に入り＋百名山から一致抽出（最大6件）
   const localMatchedPresets = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
+    const q = submittedQuery.trim().toLowerCase();
     if (!q) return [];
     const allLocal = [...favorites, ...presets];
     return allLocal
@@ -122,41 +131,57 @@ export const PresetNav: React.FC<PresetNavProps> = ({
         return matchName || matchKana || matchRegion || matchArea;
       })
       .slice(0, 6);
-  }, [favorites, presets, searchQuery]);
+  }, [favorites, presets, submittedQuery]);
 
-  // 「🔍 検索」タブでキーワード入力時に OpenStreetMap (Nominatim) をデバウンス検索
-  useEffect(() => {
-    if (activeTab !== 'search') return;
-    const trimmed = searchQuery.trim();
-    if (trimmed.length === 0) {
+  // 検索ボタン押下（またはEnterキー）で OpenStreetMap (Nominatim) 検索を実行
+  const executeSearch = useCallback((rawInput: string) => {
+    const trimmed = rawInput.trim();
+    searchAbortRef.current?.abort();
+
+    if (!trimmed) {
+      setSubmittedQuery('');
       setOsmResults([]);
       setIsSearchingOsm(false);
+      setSearchError(null);
       return;
     }
 
     const controller = new AbortController();
+    searchAbortRef.current = controller;
+
+    setSubmittedQuery(trimmed);
+    setOsmResults([]);
+    setSearchError(null);
     setIsSearchingOsm(true);
 
-    const timer = window.setTimeout(() => {
-      searchOsmLocationsByKeyword(trimmed, controller.signal)
-        .then((items) => {
-          if (!controller.signal.aborted) {
-            setOsmResults(items);
-            setIsSearchingOsm(false);
-          }
-        })
-        .catch(() => {
-          if (!controller.signal.aborted) {
-            setIsSearchingOsm(false);
-          }
-        });
-    }, 350);
+    searchOsmLocationsByKeyword(trimmed, controller.signal)
+      .then((items) => {
+        if (!controller.signal.aborted) {
+          setOsmResults(items);
+          setIsSearchingOsm(false);
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setIsSearchingOsm(false);
+          setSearchError('検索中に通信エラーが発生しました。もう一度「検索」を押してください。');
+        }
+      });
+  }, []);
 
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
-    };
-  }, [searchQuery, activeTab]);
+  const handleClearSearch = useCallback(() => {
+    searchAbortRef.current?.abort();
+    setSearchQuery('');
+    setSubmittedQuery('');
+    setOsmResults([]);
+    setIsSearchingOsm(false);
+    setSearchError(null);
+  }, []);
+
+  const handleSearchFormSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    executeSearch(searchQuery);
+  };
 
   const handleAreaChange = (newArea: string) => {
     setSelectedArea(newArea);
@@ -485,41 +510,60 @@ export const PresetNav: React.FC<PresetNavProps> = ({
             </div>
           )}
 
-          {/* === タブ3: 🔍 地名・施設検索（OpenStreetMap全国検索 ＋ 百名山・お気に入り横断） === */}
+          {/* === タブ3: 🔍 地名・施設検索（文字入力 ➔ 検索ボタン押下で検索） === */}
           {activeTab === 'search' && (
             <div className="space-y-2.5">
-              <div className="relative flex items-center">
-                <Search className="w-4 h-4 text-emerald-400 absolute left-3 pointer-events-none" />
-                <input
-                  id="preset-search-input"
-                  type="search"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="地名・施設・山小屋・駅名などを入力"
-                  aria-label="地名・施設・山名を検索"
-                  autoFocus
-                  className="w-full rounded-xl bg-slate-950/90 border border-slate-700 focus:border-emerald-400 pl-9 pr-9 py-2 text-base sm:text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-400"
-                />
-                {isSearchingOsm ? (
-                  <Loader2 className="w-4 h-4 text-emerald-400 animate-spin absolute right-3 pointer-events-none" />
-                ) : (
-                  searchQuery.length > 0 && (
+              <form onSubmit={handleSearchFormSubmit} className="flex items-center gap-1.5">
+                <div className="relative flex items-center flex-1 min-w-0">
+                  <Search className="w-4 h-4 text-emerald-400 absolute left-3 pointer-events-none" />
+                  <input
+                    id="preset-search-input"
+                    type="text"
+                    enterKeyHint="search"
+                    value={searchQuery}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setSearchQuery(val);
+                      if (val.trim().length === 0) {
+                        handleClearSearch();
+                      }
+                    }}
+                    placeholder="地名・施設・山小屋・駅名などを入力"
+                    aria-label="地名・施設・山名を検索"
+                    autoFocus
+                    className="w-full rounded-xl bg-slate-950/90 border border-slate-700 focus:border-emerald-400 pl-9 pr-8 py-2 text-base sm:text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                  />
+                  {searchQuery.length > 0 && (
                     <button
                       type="button"
                       aria-label="検索キーワードをクリア"
-                      onClick={() => setSearchQuery('')}
-                      className="absolute right-2.5 p-1 rounded-md text-slate-400 hover:text-white cursor-pointer"
+                      onClick={handleClearSearch}
+                      className="absolute right-2 p-1 rounded-md text-slate-400 hover:text-white cursor-pointer"
                     >
                       <X className="w-4 h-4" />
                     </button>
-                  )
-                )}
-              </div>
+                  )}
+                </div>
+
+                <button
+                  type="submit"
+                  id="preset-search-submit-btn"
+                  disabled={!searchQuery.trim() || isSearchingOsm}
+                  className="inline-flex items-center justify-center gap-1 min-h-[38px] px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:bg-slate-800 disabled:text-slate-500 text-slate-950 font-bold text-xs sm:text-xs transition-colors cursor-pointer disabled:cursor-not-allowed shrink-0"
+                >
+                  {isSearchingOsm ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Search className="w-3.5 h-3.5" />
+                  )}
+                  <span>検索</span>
+                </button>
+              </form>
 
               <div className="max-h-64 overflow-y-auto space-y-2.5 pr-1">
-                {searchQuery.trim().length === 0 && (
+                {!submittedQuery && !isSearchingOsm && (
                   <div className="py-6 px-3 text-center text-xs text-slate-400 bg-slate-950/60 rounded-xl border border-slate-800/80">
-                    キーワードを入力すると、全国の地名・施設（OpenStreetMap）や百名山から候補を表示します。
+                    キーワードを入力して「検索」ボタンを押すと、全国の地名・施設（OpenStreetMap）や百名山から候補を表示します。
                   </div>
                 )}
 
@@ -560,16 +604,24 @@ export const PresetNav: React.FC<PresetNavProps> = ({
                 )}
 
                 {/* 2. OpenStreetMap 全国スポット検索結果 */}
-                {searchQuery.trim().length > 0 && (
+                {(submittedQuery.length > 0 || isSearchingOsm) && (
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between text-xs font-semibold text-emerald-300 px-0.5">
-                      <span>全国の地名・施設候補 (OpenStreetMap)</span>
+                      <span className="truncate">
+                        「{submittedQuery}」の検索結果 (OpenStreetMap)
+                      </span>
                       {isSearchingOsm && (
-                        <span className="text-[11px] text-slate-400 font-normal">検索中...</span>
+                        <span className="text-[11px] text-slate-400 font-normal shrink-0">
+                          検索中...
+                        </span>
                       )}
                     </div>
 
-                    {osmResults.length > 0 ? (
+                    {searchError ? (
+                      <div className="py-4 px-3 text-center text-xs text-rose-300 bg-rose-950/40 rounded-xl border border-rose-800/60">
+                        {searchError}
+                      </div>
+                    ) : osmResults.length > 0 ? (
                       <div className="grid grid-cols-1 gap-1.5">
                         {osmResults.map((item) => (
                           <button
