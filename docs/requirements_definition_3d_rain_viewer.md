@@ -91,6 +91,7 @@ VercelのグローバルCDNから静的アセットを配信し、大容量の�
 │   │   ├── jaxaClient.ts       # JAXA Earth API（AW3D30 / GSMaP）接続ラッパー
 │   │   ├── hyakumeizanData.ts  # 日本百名山 全100座の山岳データ（山域・都道府県・標高・座標）
 │   │   ├── favoritesStorage.ts # お気に入り地点のlocalStorage永続化＆カメラ設定管理
+│   │   ├── osmPlaceClient.ts   # OpenStreetMap (Overpass + Nominatim) 施設名・地名候補取得クライアント
 │   │   ├── maplibreHelper.ts   # WebGPU 3D地形・プロトコル登録・カメラ制御
 │   │   └── viewTransition.ts   # document.startViewTransition ユーティリティ
 │   ├── types/
@@ -158,8 +159,8 @@ VercelのグローバルCDNから静的アセットを配信し、大容量の�
 ### 6.5 詳細インスペクター機能 (F-Insp)
 - **F-Insp-01: 地点詳細カード**  
   地図クリック時に、該当地点の「座標」「標高（AW3D30）」「降雨強度（mm/h）」「降水判定」をポップアップ表示する。
-- **F-Insp-02: ワンタップお気に入り登録**  
-  インスペクター内から直接お気に入り地点への登録・名前変更・削除が可能。
+- **F-Insp-02: ワンタップお気に入り登録 & OSM施設・地名候補サジェスト**  
+  インスペクター内から直接お気に入り地点への登録・名前変更・削除が可能。お気に入り登録・更新フォームを開いたタイミングで OpenStreetMap（Overpass API ＋ Nominatim 逆ジオコーディング）へ非同期リクエストを行い、周辺の山頂・山小屋・キャンプ場・登山口・駅・施設名や市区町村・町字の候補チップを距離順に表示してワンタップで入力できる。
 
 ### 6.6 モバイル & PWA最適化機能 (F-Mobile)
 - **F-Mobile-01: PWA（Progressive Web App）**  

@@ -1,6 +1,18 @@
-import React, { useEffect, useState } from 'react';
-import { MapPin, X, Mountain, CloudRain, Navigation2, Star, Trash2, Check } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  MapPin,
+  X,
+  Mountain,
+  CloudRain,
+  Navigation2,
+  Star,
+  Trash2,
+  Check,
+  Loader2,
+  Sparkles,
+} from 'lucide-react';
 import type { InspectorPoint, PresetLocation } from '../types/map';
+import { fetchOsmPlaceCandidates, type OsmPlaceCandidate } from '../lib/osmPlaceClient';
 
 interface InspectorProps {
   point: InspectorPoint | null;
@@ -82,14 +94,61 @@ export const Inspector: React.FC<InspectorProps> = ({
 }) => {
   const [isEditingFav, setIsEditingFav] = useState<boolean>(false);
   const [favNameInput, setFavNameInput] = useState<string>('');
+  const [osmCandidates, setOsmCandidates] = useState<OsmPlaceCandidate[]>([]);
+  const [isLoadingOsm, setIsLoadingOsm] = useState<boolean>(false);
+  const hasUserEditedRef = useRef<boolean>(false);
 
   // 選択地点が変わったら入力フォームをリセットし、初期候補名をセット
   useEffect(() => {
     setIsEditingFav(false);
+    setOsmCandidates([]);
+    setIsLoadingOsm(false);
+    hasUserEditedRef.current = false;
     if (point) {
       setFavNameInput(matchedFavorite?.name ?? getSuggestedFavoriteName(point));
     }
-  }, [point?.lng, point?.lat, point?.label, matchedFavorite?.id]);
+  }, [point?.lng, point?.lat, point?.label, matchedFavorite?.id, matchedFavorite?.name]);
+
+  // お気に入り編集フォームが開かれた時点で OpenStreetMap (Overpass + Nominatim) から施設・地名候補を取得
+  useEffect(() => {
+    if (!isEditingFav || !point) return;
+
+    const controller = new AbortController();
+    setIsLoadingOsm(true);
+
+    const applyCandidates = (candidates: OsmPlaceCandidate[]) => {
+      setOsmCandidates(candidates);
+      // 初期値が汎用座標名（「登録地点 (...)」）で、かつユーザーがまだ手入力していない場合は第1候補を自動セット
+      if (
+        candidates.length > 0 &&
+        !hasUserEditedRef.current &&
+        !matchedFavorite &&
+        !point.label
+      ) {
+        setFavNameInput(candidates[0].name);
+      }
+    };
+
+    fetchOsmPlaceCandidates(point.lat, point.lng, {
+      signal: controller.signal,
+      onPartialUpdate: applyCandidates,
+    })
+      .then((finalCandidates) => {
+        if (!controller.signal.aborted) {
+          applyCandidates(finalCandidates);
+          setIsLoadingOsm(false);
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setIsLoadingOsm(false);
+        }
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [isEditingFav, point?.lat, point?.lng, point?.label, matchedFavorite]);
 
   if (!point) return null;
 
@@ -103,11 +162,12 @@ export const Inspector: React.FC<InspectorProps> = ({
     typeof window !== 'undefined' &&
     window.innerWidth >= 768;
 
+  const cardBottomReserve = isEditingFav ? 420 : 310;
   const clampedLeft = hasScreenPos
-    ? Math.min(Math.max(point.screenX! + 18, 24), window.innerWidth - 320)
+    ? Math.min(Math.max(point.screenX! + 18, 24), window.innerWidth - 340)
     : undefined;
   const clampedTop = hasScreenPos
-    ? Math.min(Math.max(point.screenY! - 60, 76), window.innerHeight - 310)
+    ? Math.min(Math.max(point.screenY! - 60, 76), Math.max(76, window.innerHeight - cardBottomReserve))
     : undefined;
 
   const handleSaveSubmit = (e: React.FormEvent) => {
@@ -135,7 +195,7 @@ export const Inspector: React.FC<InspectorProps> = ({
               bottom: 'calc(env(safe-area-inset-bottom, 0px) * 0.6 + 104px)',
             }
       }
-      className="vt-inspector-card pointer-events-auto rounded-2xl bg-slate-900/95 backdrop-blur-md border border-sky-400/60 shadow-2xl p-3.5 sm:p-4 text-xs text-slate-100 w-72"
+      className="vt-inspector-card pointer-events-auto rounded-2xl bg-slate-900/95 backdrop-blur-md border border-sky-400/60 shadow-2xl p-3.5 sm:p-4 text-xs text-slate-100 w-72 sm:w-80"
     >
       {/* ヘッダーと閉じるボタン */}
       <div className="flex items-center justify-between pb-2.5 mb-2.5 border-b border-slate-700/80">
@@ -215,6 +275,7 @@ export const Inspector: React.FC<InspectorProps> = ({
               type="button"
               id="inspector-fav-open-btn"
               onClick={() => {
+                hasUserEditedRef.current = false;
                 setFavNameInput(getSuggestedFavoriteName(point));
                 setIsEditingFav(true);
               }}
@@ -231,6 +292,7 @@ export const Inspector: React.FC<InspectorProps> = ({
                 type="button"
                 id="inspector-fav-edit-btn"
                 onClick={() => {
+                  hasUserEditedRef.current = false;
                   setFavNameInput(matchedFavorite.name);
                   setIsEditingFav(true);
                 }}
@@ -265,12 +327,76 @@ export const Inspector: React.FC<InspectorProps> = ({
                 id="inspector-fav-name-input"
                 type="text"
                 value={favNameInput}
-                onChange={(e) => setFavNameInput(e.target.value)}
+                onChange={(e) => {
+                  hasUserEditedRef.current = true;
+                  setFavNameInput(e.target.value);
+                }}
                 placeholder="例: 自宅、上高地、キャンプ場"
                 aria-label="お気に入り地点の名前"
                 autoFocus
                 className="w-full rounded-xl bg-slate-950/90 border border-amber-400/50 px-3 py-1.5 text-base sm:text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-400"
               />
+
+              {/* OpenStreetMap (Overpass + Nominatim) からの施設名・地名候補チップ */}
+              {(isLoadingOsm || osmCandidates.length > 0) && (
+                <div
+                  id="inspector-osm-candidates"
+                  className="rounded-xl bg-slate-950/75 border border-slate-800/90 p-2 space-y-1.5"
+                >
+                  <div className="flex items-center justify-between text-[10px] text-slate-400">
+                    <span className="inline-flex items-center gap-1 font-semibold text-sky-300">
+                      <Sparkles className="w-3 h-3 text-sky-400 shrink-0" />
+                      <span>OSM周辺の施設・地名候補（タップで入力）</span>
+                    </span>
+                    {isLoadingOsm && (
+                      <span className="inline-flex items-center gap-1 text-slate-400">
+                        <Loader2 className="w-3 h-3 animate-spin text-sky-400" />
+                        <span>検索中</span>
+                      </span>
+                    )}
+                  </div>
+
+                  {osmCandidates.length > 0 ? (
+                    <div className="flex flex-wrap gap-1 max-h-28 overflow-y-auto pr-0.5">
+                      {osmCandidates.map((cand) => {
+                        const isSelected = favNameInput.trim() === cand.name;
+                        return (
+                          <button
+                            key={`${cand.source}-${cand.category}-${cand.name}`}
+                            type="button"
+                            onClick={() => {
+                              hasUserEditedRef.current = true;
+                              setFavNameInput(cand.name);
+                            }}
+                            className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer text-left max-w-full ${
+                              isSelected
+                                ? 'bg-sky-500/30 border border-sky-400 text-sky-100 shadow-sm'
+                                : 'bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 text-slate-200'
+                            }`}
+                          >
+                            <span className="px-1 py-0.2 rounded bg-slate-800 text-[9px] text-sky-300 shrink-0">
+                              {cand.category}
+                            </span>
+                            <span className="truncate">{cand.name}</span>
+                            {typeof cand.distanceMeters === 'number' && cand.distanceMeters > 0 && (
+                              <span className="text-[9px] text-slate-400 font-mono shrink-0">
+                                {cand.distanceMeters}m
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    isLoadingOsm && (
+                      <div className="text-[11px] text-slate-400 py-1">
+                        OpenStreetMap から周辺の施設・ランドマークを検索しています...
+                      </div>
+                    )
+                  )}
+                </div>
+              )}
+
               <div className="flex items-center gap-1.5">
                 <button
                   type="submit"
@@ -295,3 +421,4 @@ export const Inspector: React.FC<InspectorProps> = ({
     </div>
   );
 };
+
