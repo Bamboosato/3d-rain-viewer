@@ -100,7 +100,38 @@ export const Inspector: React.FC<InspectorProps> = ({
   const [osmCandidates, setOsmCandidates] = useState<OsmPlaceCandidate[]>([]);
   const [isLoadingOsm, setIsLoadingOsm] = useState<boolean>(false);
   const [isShareCopied, setIsShareCopied] = useState<boolean>(false);
+  const [cardHeight, setCardHeight] = useState<number>(0);
+  const [viewport, setViewport] = useState<{ width: number; height: number }>(() => ({
+    width: typeof window !== 'undefined' ? window.innerWidth : 1280,
+    height: typeof window !== 'undefined' ? window.innerHeight : 800,
+  }));
+  const cardRef = useRef<HTMLDivElement | null>(null);
   const hasUserEditedRef = useRef<boolean>(false);
+
+  // ウィンドウリサイズ追従
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleResize = () => {
+      setViewport({ width: window.innerWidth, height: window.innerHeight });
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // インスペクターカード自身の高さ変化（お気に入り編集展開・OSM候補チップ描画時）をリアルタイム計測
+  useEffect(() => {
+    const el = cardRef.current;
+    if (!el) return;
+    const updateHeight = () => {
+      setCardHeight(el.offsetHeight);
+    };
+    updateHeight();
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(() => updateHeight());
+      observer.observe(el);
+      return () => observer.disconnect();
+    }
+  }, [point, isEditingFav, osmCandidates.length, isLoadingOsm]);
 
   // 選択地点が変わったら入力フォームをリセットし、初期候補名をセット
   useEffect(() => {
@@ -160,20 +191,47 @@ export const Inspector: React.FC<InspectorProps> = ({
   const rainVal = point.precipitation ?? 0;
   const intensity = getRainfallIntensityInfo(rainVal);
 
-  // クリック地点の近傍に配置しつつ、画面端やUIパネルと重なりすぎないよう安全範囲にクランプ
+  // PC画面ではクリック地点の近傍に配置しつつ、上部ヘッダー（72px）および下部タイムラインバー（116px）と絶対に重ならないようクランプ
   const hasScreenPos =
     typeof point.screenX === 'number' &&
     typeof point.screenY === 'number' &&
-    typeof window !== 'undefined' &&
-    window.innerWidth >= 768;
+    viewport.width >= 768;
 
-  const cardBottomReserve = isEditingFav ? 420 : 310;
-  const clampedLeft = hasScreenPos
-    ? Math.min(Math.max(point.screenX! + 18, 24), window.innerWidth - 340)
-    : undefined;
-  const clampedTop = hasScreenPos
-    ? Math.min(Math.max(point.screenY! - 60, 76), Math.max(76, window.innerHeight - cardBottomReserve))
-    : undefined;
+  const TOP_SAFE_OFFSET = 72;
+  const BOTTOM_TIMELINE_RESERVE = 116;
+  const SIDE_SAFE_OFFSET = 20;
+  const CARD_WIDTH = 320;
+
+  const estimatedHeight = isEditingFav ? 420 : 220;
+  const effectiveCardHeight = cardHeight > 0 ? cardHeight : estimatedHeight;
+
+  let clampedLeft: number | undefined;
+  let clampedTop: number | undefined;
+
+  if (hasScreenPos) {
+    const sx = point.screenX!;
+    const sy = point.screenY!;
+    // クリック地点の右側に十分な余白があれば右側、なければ左側へ配置して選択マーカー隠れも防ぐ
+    const preferRight = sx + 22;
+    const preferLeft = sx - CARD_WIDTH - 22;
+    const rawLeft =
+      preferRight + CARD_WIDTH <= viewport.width - SIDE_SAFE_OFFSET
+        ? preferRight
+        : preferLeft >= SIDE_SAFE_OFFSET
+          ? preferLeft
+          : preferRight;
+
+    clampedLeft = Math.min(
+      Math.max(rawLeft, SIDE_SAFE_OFFSET),
+      Math.max(SIDE_SAFE_OFFSET, viewport.width - CARD_WIDTH - SIDE_SAFE_OFFSET)
+    );
+
+    const maxAllowedTop = Math.max(
+      TOP_SAFE_OFFSET,
+      viewport.height - effectiveCardHeight - BOTTOM_TIMELINE_RESERVE
+    );
+    clampedTop = Math.min(Math.max(sy - 60, TOP_SAFE_OFFSET), maxAllowedTop);
+  }
 
   const handleSaveSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -195,6 +253,7 @@ export const Inspector: React.FC<InspectorProps> = ({
 
   return (
     <div
+      ref={cardRef}
       id="point-inspector-card"
       role="region"
       aria-label="地点インスペクター"
@@ -211,7 +270,7 @@ export const Inspector: React.FC<InspectorProps> = ({
               bottom: 'calc(env(safe-area-inset-bottom, 0px) * 0.6 + 104px)',
             }
       }
-      className="vt-inspector-card pointer-events-auto rounded-2xl bg-slate-900/95 backdrop-blur-md border border-sky-400/60 shadow-2xl p-4 text-slate-100 w-72 sm:w-80 space-y-3"
+      className="vt-inspector-card pointer-events-auto rounded-2xl bg-slate-900/95 backdrop-blur-md border border-sky-400/60 shadow-2xl p-4 text-slate-100 w-72 sm:w-80 max-h-[calc(100dvh-188px)] overflow-y-auto space-y-3"
     >
       {/* ヘッダー（タイトル＋座標＋閉じるボタン） */}
       <div className="flex items-start justify-between gap-2">

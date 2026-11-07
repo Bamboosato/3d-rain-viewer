@@ -924,7 +924,7 @@ export const App: React.FC = () => {
       </header>
 
       {/* クリック地点の近傍にフローティング表示される地点インスペクター (機能B: 単一インスタンスでView Transitions固有性を保証) */}
-      <div className="pointer-events-none fixed inset-0 z-20">
+      <div className="pointer-events-none fixed inset-0 z-[25]">
         <Inspector
           point={inspectedPoint}
           onClose={() => {
