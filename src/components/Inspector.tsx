@@ -181,7 +181,7 @@ export const Inspector: React.FC<InspectorProps> = ({
     <div
       id="point-inspector-card"
       role="region"
-      aria-label="クリック地点の詳細インスペクター"
+      aria-label="地点インスペクター"
       style={
         hasScreenPos
           ? {
@@ -195,81 +195,70 @@ export const Inspector: React.FC<InspectorProps> = ({
               bottom: 'calc(env(safe-area-inset-bottom, 0px) * 0.6 + 104px)',
             }
       }
-      className="vt-inspector-card pointer-events-auto rounded-2xl bg-slate-900/95 backdrop-blur-md border border-sky-400/60 shadow-2xl p-3.5 sm:p-4 text-xs text-slate-100 w-72 sm:w-80"
+      className="vt-inspector-card pointer-events-auto rounded-2xl bg-slate-900/95 backdrop-blur-md border border-sky-400/60 shadow-2xl p-4 text-slate-100 w-72 sm:w-80 space-y-3"
     >
-      {/* ヘッダーと閉じるボタン */}
-      <div className="flex items-center justify-between pb-2.5 mb-2.5 border-b border-slate-700/80">
-        <div className="flex flex-col min-w-0">
-          <div className="flex items-center gap-1.5 font-bold text-sky-300 text-xs">
+      {/* ヘッダー（タイトル＋座標＋閉じるボタン） */}
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
             <MapPin className="w-4 h-4 text-sky-400 shrink-0" />
-            <span>地点インスペクター</span>
-          </div>
-          {point.label && (
-            <div
+            <span
               id="inspector-point-label"
-              className="text-sm font-bold text-white mt-1 truncate"
+              className="text-sm font-bold text-white truncate"
             >
-              {point.label}
-            </div>
-          )}
+              {point.label || '選択地点'}
+            </span>
+          </div>
+          <div className="flex items-center gap-1 mt-1 text-xs text-slate-400 font-mono truncate">
+            <Navigation2 className="w-3 h-3 text-slate-500 shrink-0" />
+            <span>
+              {point.lat.toFixed(4)}°N, {point.lng.toFixed(4)}°E
+            </span>
+          </div>
         </div>
         <button
           type="button"
           id="inspector-close-btn"
           onClick={onClose}
           aria-label="インスペクターを閉じる"
-          className="inline-flex items-center justify-center min-w-[32px] min-h-[32px] p-1 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 shrink-0"
+          className="inline-flex items-center justify-center w-8 h-8 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 shrink-0 -mr-1 -mt-1"
         >
           <X className="w-4 h-4" />
         </button>
       </div>
 
-      {/* 経緯度座標 */}
-      <div className="flex items-center justify-between px-2.5 py-1.5 rounded-xl bg-slate-950/80 border border-slate-800 mb-2.5 font-mono text-[11px]">
-        <span className="flex items-center gap-1 text-slate-400 font-sans">
-          <Navigation2 className="w-3 h-3 text-slate-400" />
-          座標
-        </span>
-        <span className="text-slate-200 font-semibold">
-          {point.lat.toFixed(4)}°N, {point.lng.toFixed(4)}°E
-        </span>
-      </div>
-
-      {/* 標高バッジ & 降雨強度バッジ */}
-      <div className="grid grid-cols-2 gap-2">
-        <div className="rounded-xl bg-amber-500/15 border border-amber-400/35 p-2.5 flex flex-col justify-between">
-          <div className="flex items-center gap-1 text-[11px] text-amber-300/90 font-medium">
+      {/* 標高 & 雨量（2カラム・大きめフォントで視認性向上） */}
+      <div className="grid grid-cols-2 gap-2.5">
+        <div className="rounded-xl bg-amber-500/15 border border-amber-400/35 px-3 py-2.5">
+          <div className="flex items-center gap-1 text-xs text-amber-300 font-semibold truncate">
             <Mountain className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-            <span>標高 (AW3D30)</span>
+            <span>標高</span>
           </div>
           <div
             id="inspector-elevation-value"
-            className="font-mono text-sm font-bold text-amber-200 mt-1"
+            className="font-mono text-base font-bold text-amber-100 mt-1 truncate"
           >
             {point.elevation !== null ? `${point.elevation.toLocaleString()} m` : '計測中...'}
           </div>
         </div>
 
-        <div className={`rounded-xl border p-2.5 flex flex-col justify-between ${intensity.badgeClass}`}>
-          <div className="flex items-center gap-1 text-[11px] font-medium">
-            <CloudRain className="w-3.5 h-3.5 shrink-0" />
-            <span>降雨強度</span>
+        <div className={`rounded-xl border px-3 py-2.5 ${intensity.badgeClass}`}>
+          <div className="flex items-center justify-between gap-1 text-xs font-semibold">
+            <span className="inline-flex items-center gap-1 truncate">
+              <CloudRain className="w-3.5 h-3.5 shrink-0" />
+              <span>雨量</span>
+            </span>
+            <span className="text-[11px] opacity-90 truncate">{intensity.label}</span>
           </div>
-          <div id="inspector-rain-value" className="font-mono text-sm font-bold mt-1">
-            {rainVal.toFixed(2)} <span className="text-[11px] font-normal">mm/h</span>
+          <div id="inspector-rain-value" className="font-mono text-base font-bold mt-1 truncate">
+            {rainVal.toFixed(1)} <span className="text-xs font-normal">mm/h</span>
           </div>
         </div>
       </div>
 
-      {/* 雨量ステータスラベル */}
-      <div className="mt-2.5 pt-2 border-t border-slate-800/90 flex items-center justify-between text-xs">
-        <span className="text-slate-400">現在の降水判定</span>
-        <span className="font-bold text-sky-300">{intensity.label}</span>
-      </div>
-
-      {/* お気に入り地点登録・解除エリア（現在の縮尺・傾き・方角も一緒に記憶） */}
+      {/* お気に入り登録・編集エリア */}
       {onSaveFavorite && (
-        <div className="mt-2.5 pt-2.5 border-t border-slate-800/90">
+        <div className="pt-1">
           {!isEditingFav && !matchedFavorite && (
             <button
               type="button"
@@ -279,15 +268,15 @@ export const Inspector: React.FC<InspectorProps> = ({
                 setFavNameInput(getSuggestedFavoriteName(point));
                 setIsEditingFav(true);
               }}
-              className="w-full inline-flex items-center justify-center gap-1.5 min-h-[38px] px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-amber-200 text-xs sm:text-sm font-bold transition-colors cursor-pointer"
+              className="w-full inline-flex items-center justify-center gap-1.5 min-h-[40px] px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-amber-200 text-sm font-bold transition-colors cursor-pointer truncate"
             >
               <Star className="w-4 h-4 text-amber-400 shrink-0" />
-              <span>お気に入り地点に登録</span>
+              <span>お気に入りに追加</span>
             </button>
           )}
 
           {!isEditingFav && matchedFavorite && (
-            <div className="flex items-center justify-between gap-1.5">
+            <div className="flex items-center gap-2">
               <button
                 type="button"
                 id="inspector-fav-edit-btn"
@@ -296,11 +285,11 @@ export const Inspector: React.FC<InspectorProps> = ({
                   setFavNameInput(matchedFavorite.name);
                   setIsEditingFav(true);
                 }}
-                title="現在の縮尺・傾き・方角で上書き保存、または名前を変更"
-                className="flex-1 inline-flex items-center justify-center gap-1.5 min-h-[36px] px-2.5 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-amber-200 text-xs font-bold truncate cursor-pointer"
+                title="現在の視点で更新、または名前を変更"
+                className="flex-1 inline-flex items-center justify-center gap-1.5 min-h-[40px] px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-amber-200 text-sm font-bold truncate cursor-pointer"
               >
-                <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400 shrink-0" />
-                <span className="truncate">登録済（視点・名前を更新）</span>
+                <Star className="w-4 h-4 text-amber-400 fill-amber-400 shrink-0" />
+                <span className="truncate">名前・視点を更新</span>
               </button>
 
               {onRemoveFavorite && (
@@ -310,7 +299,7 @@ export const Inspector: React.FC<InspectorProps> = ({
                   onClick={() => onRemoveFavorite(matchedFavorite.id)}
                   title="お気に入りから削除"
                   aria-label="お気に入りから削除"
-                  className="inline-flex items-center justify-center min-w-[36px] min-h-[36px] p-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 border border-rose-400/40 text-rose-300 transition-colors cursor-pointer shrink-0"
+                  className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 border border-rose-400/40 text-rose-300 transition-colors cursor-pointer shrink-0"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -319,9 +308,9 @@ export const Inspector: React.FC<InspectorProps> = ({
           )}
 
           {isEditingFav && (
-            <form onSubmit={handleSaveSubmit} className="space-y-2">
-              <div className="text-[11px] text-amber-300/90 font-medium">
-                ⭐ 地点名を入力（現在の縮尺・傾き・方角も記憶します）
+            <form onSubmit={handleSaveSubmit} className="space-y-2.5 pt-1 border-t border-slate-800">
+              <div className="text-xs text-amber-300 font-semibold truncate">
+                ⭐ 地点名（現在の視点も保存）
               </div>
               <input
                 id="inspector-fav-name-input"
@@ -331,33 +320,30 @@ export const Inspector: React.FC<InspectorProps> = ({
                   hasUserEditedRef.current = true;
                   setFavNameInput(e.target.value);
                 }}
-                placeholder="例: 自宅、上高地、キャンプ場"
+                placeholder="地点名を入力"
                 aria-label="お気に入り地点の名前"
                 autoFocus
-                className="w-full rounded-xl bg-slate-950/90 border border-amber-400/50 px-3 py-1.5 text-base sm:text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                className="w-full rounded-xl bg-slate-950/90 border border-amber-400/50 px-3 py-2 text-base sm:text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-400"
               />
 
-              {/* OpenStreetMap (Overpass + Nominatim) からの施設名・地名候補チップ */}
+              {/* OpenStreetMap 施設・地名候補チップ */}
               {(isLoadingOsm || osmCandidates.length > 0) && (
                 <div
                   id="inspector-osm-candidates"
-                  className="rounded-xl bg-slate-950/75 border border-slate-800/90 p-2 space-y-1.5"
+                  className="rounded-xl bg-slate-950/75 border border-slate-800/90 p-2.5 space-y-2"
                 >
-                  <div className="flex items-center justify-between text-[10px] text-slate-400">
-                    <span className="inline-flex items-center gap-1 font-semibold text-sky-300">
-                      <Sparkles className="w-3 h-3 text-sky-400 shrink-0" />
-                      <span>OSM周辺の施設・地名候補（タップで入力）</span>
+                  <div className="flex items-center justify-between gap-2 text-xs">
+                    <span className="inline-flex items-center gap-1 font-semibold text-sky-300 truncate">
+                      <Sparkles className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                      <span className="truncate">周辺の候補（タップで選択）</span>
                     </span>
                     {isLoadingOsm && (
-                      <span className="inline-flex items-center gap-1 text-slate-400">
-                        <Loader2 className="w-3 h-3 animate-spin text-sky-400" />
-                        <span>検索中</span>
-                      </span>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-400 shrink-0" />
                     )}
                   </div>
 
                   {osmCandidates.length > 0 ? (
-                    <div className="flex flex-wrap gap-1 max-h-28 overflow-y-auto pr-0.5">
+                    <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pr-0.5">
                       {osmCandidates.map((cand) => {
                         const isSelected = favNameInput.trim() === cand.name;
                         return (
@@ -368,48 +354,43 @@ export const Inspector: React.FC<InspectorProps> = ({
                               hasUserEditedRef.current = true;
                               setFavNameInput(cand.name);
                             }}
-                            className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-colors cursor-pointer text-left max-w-full ${
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer text-left max-w-full ${
                               isSelected
                                 ? 'bg-sky-500/30 border border-sky-400 text-sky-100 shadow-sm'
-                                : 'bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 text-slate-200'
+                                : 'bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-slate-200'
                             }`}
                           >
-                            <span className="px-1 py-0.2 rounded bg-slate-800 text-[9px] text-sky-300 shrink-0">
+                            <span className="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] text-sky-300 shrink-0">
                               {cand.category}
                             </span>
                             <span className="truncate">{cand.name}</span>
-                            {typeof cand.distanceMeters === 'number' && cand.distanceMeters > 0 && (
-                              <span className="text-[9px] text-slate-400 font-mono shrink-0">
-                                {cand.distanceMeters}m
-                              </span>
-                            )}
                           </button>
                         );
                       })}
                     </div>
                   ) : (
                     isLoadingOsm && (
-                      <div className="text-[11px] text-slate-400 py-1">
-                        OpenStreetMap から周辺の施設・ランドマークを検索しています...
+                      <div className="text-xs text-slate-400 truncate">
+                        周辺の施設・地名を検索中...
                       </div>
                     )
                   )}
                 </div>
               )}
 
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-2">
                 <button
                   type="submit"
                   id="inspector-fav-save-btn"
-                  className="flex-1 inline-flex items-center justify-center gap-1 min-h-[36px] px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs sm:text-sm cursor-pointer"
+                  className="flex-1 inline-flex items-center justify-center gap-1 min-h-[38px] px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm cursor-pointer"
                 >
                   <Check className="w-4 h-4" />
-                  <span>保存する</span>
+                  <span>保存</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setIsEditingFav(false)}
-                  className="px-3 py-1.5 min-h-[36px] rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs cursor-pointer"
+                  className="px-3.5 py-1.5 min-h-[38px] rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-sm cursor-pointer"
                 >
                   キャンセル
                 </button>
