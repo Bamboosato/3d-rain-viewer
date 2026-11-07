@@ -765,6 +765,91 @@ export const App: React.FC = () => {
     );
   }, [isLocating]);
 
+  // PWA Link Capturing (Launch Handler API): インストール済みPWAが共有URLから起動・フォーカスされた際に視点と地点名を即時反映
+  useEffect(() => {
+    const win = window as Window & {
+      launchQueue?: {
+        setConsumer: (consumer: (launchParams: { targetURL?: string }) => void) => void;
+      };
+    };
+    if (!win.launchQueue) return;
+
+    win.launchQueue.setConsumer(async (launchParams) => {
+      if (!launchParams?.targetURL) return;
+      try {
+        const parsedUrl = new URL(launchParams.targetURL);
+        if (!parsedUrl.search) return;
+        const urlState = parseUrlViewState(parsedUrl.search);
+        if (!urlState) return;
+
+        const { preset } = resolveInitialPresetFromUrl(urlState, favorites);
+        const [lng, lat] = preset.center;
+
+        sharedSpotNameRef.current = urlState.spotName;
+        cameraViewRef.current = {
+          lat,
+          lng,
+          zoom: preset.zoom,
+          pitch: preset.pitch,
+          bearing: preset.bearing,
+        };
+
+        if (urlState.exaggeration !== undefined) {
+          setExaggeration(urlState.exaggeration);
+        }
+        if (urlState.baseMap) {
+          setBaseMap(urlState.baseMap);
+        }
+        if (urlState.rainSource) {
+          setRainSource(urlState.rainSource);
+        }
+
+        mapInstanceRef.current?.flyTo({
+          center: [lng, lat],
+          zoom: preset.zoom,
+          pitch: preset.pitch,
+          bearing: preset.bearing,
+          duration: 1400,
+          essential: true,
+        });
+
+        const inspected = inspectLocationValues(lng, lat);
+        const resolvedElevation =
+          preset.elevation && preset.elevation > 0 ? preset.elevation : inspected.elevation;
+
+        setActivePreset(preset);
+        setActivePresetRain(inspected.precipitation ?? 0);
+
+        if (urlState.spotName) {
+          const screenX = Math.round(window.innerWidth / 2);
+          const screenY = Math.round(window.innerHeight / 2);
+          setInspectedPoint({
+            lng,
+            lat,
+            elevation: resolvedElevation,
+            precipitation: inspected.precipitation ?? 0,
+            screenX,
+            screenY,
+            label: preset.isFavorite ? `⭐ ${urlState.spotName}` : `📍 ${urlState.spotName}`,
+          });
+
+          if (resolvedElevation === null) {
+            const fetchedElev = await fetchPointElevationFromAW3D(lng, lat);
+            if (fetchedElev !== null) {
+              setInspectedPoint((prev) =>
+                prev && prev.lng === lng && prev.lat === lat
+                  ? { ...prev, elevation: fetchedElev }
+                  : prev
+              );
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to apply launchQueue targetURL:', err);
+      }
+    });
+  }, [favorites]);
+
   // モーダル・上部パネルオープン時の Escape キー対応 (a11y-debugging 準拠)
   useEffect(() => {
     if (!showCreditModal && !openTopPanel) return;

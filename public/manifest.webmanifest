@@ -6,6 +6,16 @@
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
+  "handle_links": "preferred",
+  "launch_handler": {
+    "client_mode": ["navigate-existing", "auto"]
+  },
+  "url_handlers": [
+    {
+      "origin": "https://3d-rain-viewer.bamboosato.com"
+    }
+  ],
   "orientation": "any",
   "background_color": "#020617",
   "theme_color": "#020617",
