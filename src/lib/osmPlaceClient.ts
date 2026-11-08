@@ -876,8 +876,8 @@ async function fetchNominatimSearchLocations(
 }
 
 function mergeSearchLocations(
-  nominatimItems: OsmSearchLocation[],
-  gsiItems: OsmSearchLocation[]
+  gsiItems: OsmSearchLocation[],
+  nominatimItems: OsmSearchLocation[]
 ): OsmSearchLocation[] {
   const merged: OsmSearchLocation[] = [];
 
@@ -892,10 +892,10 @@ function mergeSearchLocations(
     }
   };
 
-  for (const item of nominatimItems) {
+  for (const item of gsiItems) {
     addIfUnique(item);
   }
-  for (const item of gsiItems) {
+  for (const item of nominatimItems) {
     addIfUnique(item);
   }
 
@@ -926,8 +926,12 @@ export async function searchOsmLocationsByKeyword(
 
   const notifyPartial = () => {
     if (signal?.aborted) return;
-    const current = mergeSearchLocations(nominatimList, gsiList);
+    const current = mergeSearchLocations(gsiList, nominatimList);
     if (current.length > 0) {
+      searchResultCache.set(cacheKey, {
+        items: current,
+        timestamp: Date.now(),
+      });
       onPartialUpdate?.(current);
     }
   };
@@ -954,7 +958,7 @@ export async function searchOsmLocationsByKeyword(
     return [];
   }
 
-  const finalResults = mergeSearchLocations(nominatimList, gsiList);
+  const finalResults = mergeSearchLocations(gsiList, nominatimList);
   if (finalResults.length > 0) {
     searchResultCache.set(cacheKey, {
       items: finalResults,

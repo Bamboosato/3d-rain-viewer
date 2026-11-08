@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import {
   Compass,
   Mountain,
@@ -61,13 +62,37 @@ export const PresetNav: React.FC<PresetNavProps> = ({
   const [osmResults, setOsmResults] = useState<OsmSearchLocation[]>([]);
   const [isSearchingOsm, setIsSearchingOsm] = useState<boolean>(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [searchRenderVersion, setSearchRenderVersion] = useState<number>(0);
   const [copiedFavoriteId, setCopiedFavoriteId] = useState<string | null>(null);
   const searchAbortRef = useRef<AbortController | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const lastExecutedAtRef = useRef<number>(0);
 
   useEffect(() => {
     return () => {
       searchAbortRef.current?.abort();
     };
+  }, []);
+
+  // 非同期検索完了時にDOM再構築とブラウザの再描画（リフロー）を即時確定させるヘルパー
+  const commitSearchUiUpdate = useCallback((updater: () => void) => {
+    try {
+      flushSync(() => {
+        updater();
+        setSearchRenderVersion((v) => v + 1);
+      });
+    } catch {
+      updater();
+      setSearchRenderVersion((v) => v + 1);
+    }
+    if (typeof window !== 'undefined') {
+      window.requestAnimationFrame(() => {
+        if (panelRef.current) {
+          void panelRef.current.offsetHeight;
+        }
+      });
+    }
   }, []);
 
   const handleToggleOpen = () => {
@@ -133,59 +158,84 @@ export const PresetNav: React.FC<PresetNavProps> = ({
       .slice(0, 6);
   }, [favorites, presets, submittedQuery]);
 
-  // 検索ボタン押下（またはEnterキー）で OpenStreetMap (Nominatim) 検索を実行
-  const executeSearch = useCallback((rawInput: string) => {
-    const trimmed = rawInput.trim();
-    searchAbortRef.current?.abort();
+  // 検索ボタン押下（またはEnterキー）で 国土地理院 + OpenStreetMap (Nominatim) 検索を実行
+  const executeSearch = useCallback(
+    (rawInput?: string) => {
+      const liveValue = rawInput ?? searchInputRef.current?.value ?? searchQuery;
+      const trimmed = liveValue.trim();
+      lastExecutedAtRef.current = Date.now();
+      searchAbortRef.current?.abort();
 
-    if (!trimmed) {
+      if (liveValue !== searchQuery) {
+        setSearchQuery(liveValue);
+      }
+      // スマホの仮想キーボードを閉じて検索結果リストの表示領域を確保＆IME未確定文字を確定
+      searchInputRef.current?.blur();
+
+      if (!trimmed) {
+        commitSearchUiUpdate(() => {
+          setSubmittedQuery('');
+          setOsmResults([]);
+          setIsSearchingOsm(false);
+          setSearchError(null);
+        });
+        return;
+      }
+
+      const controller = new AbortController();
+      searchAbortRef.current = controller;
+
+      commitSearchUiUpdate(() => {
+        setSubmittedQuery(trimmed);
+        setOsmResults([]);
+        setSearchError(null);
+        setIsSearchingOsm(true);
+      });
+
+      searchOsmLocationsByKeyword(trimmed, controller.signal, (partialItems) => {
+        if (!controller.signal.aborted && partialItems.length > 0) {
+          commitSearchUiUpdate(() => {
+            setOsmResults(partialItems);
+            setIsSearchingOsm(false);
+          });
+        }
+      })
+        .then((items) => {
+          if (!controller.signal.aborted) {
+            commitSearchUiUpdate(() => {
+              setOsmResults(items);
+              setIsSearchingOsm(false);
+            });
+          }
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) {
+            commitSearchUiUpdate(() => {
+              setIsSearchingOsm(false);
+              setSearchError(
+                '検索中に通信エラーが発生しました。もう一度「検索」を押してください。'
+              );
+            });
+          }
+        });
+    },
+    [searchQuery, commitSearchUiUpdate]
+  );
+
+  const handleClearSearch = useCallback(() => {
+    searchAbortRef.current?.abort();
+    commitSearchUiUpdate(() => {
+      setSearchQuery('');
       setSubmittedQuery('');
       setOsmResults([]);
       setIsSearchingOsm(false);
       setSearchError(null);
-      return;
-    }
-
-    const controller = new AbortController();
-    searchAbortRef.current = controller;
-
-    setSubmittedQuery(trimmed);
-    setOsmResults([]);
-    setSearchError(null);
-    setIsSearchingOsm(true);
-
-    searchOsmLocationsByKeyword(trimmed, controller.signal, (partialItems) => {
-      if (!controller.signal.aborted && partialItems.length > 0) {
-        setOsmResults(partialItems);
-        setIsSearchingOsm(false);
-      }
-    })
-      .then((items) => {
-        if (!controller.signal.aborted) {
-          setOsmResults(items);
-          setIsSearchingOsm(false);
-        }
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) {
-          setIsSearchingOsm(false);
-          setSearchError('検索中に通信エラーが発生しました。もう一度「検索」を押してください。');
-        }
-      });
-  }, []);
-
-  const handleClearSearch = useCallback(() => {
-    searchAbortRef.current?.abort();
-    setSearchQuery('');
-    setSubmittedQuery('');
-    setOsmResults([]);
-    setIsSearchingOsm(false);
-    setSearchError(null);
-  }, []);
+    });
+  }, [commitSearchUiUpdate]);
 
   const handleSearchFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    executeSearch(searchQuery);
+    executeSearch(searchInputRef.current?.value ?? searchQuery);
   };
 
   const handleAreaChange = (newArea: string) => {
@@ -239,8 +289,9 @@ export const PresetNav: React.FC<PresetNavProps> = ({
       {/* 展開パネル本体 */}
       {isOpen && (
         <div
+          ref={panelRef}
           id="preset-nav-panel"
-          className="safe-top-dropdown fixed z-30 rounded-2xl bg-slate-900/95 backdrop-blur-md border border-slate-700/80 shadow-2xl p-3.5 text-slate-100 w-[calc(100vw-1.5rem)] sm:w-[26rem] max-w-md space-y-3 overflow-y-auto"
+          className="safe-top-dropdown fixed z-30 rounded-2xl bg-slate-900/[0.98] border border-slate-700/80 shadow-2xl p-3.5 text-slate-100 w-[calc(100vw-1.5rem)] sm:w-[26rem] max-w-md space-y-3 overflow-y-auto"
         >
           {/* 3タブ切替: 🏔️ 百名山 / ⭐ お気に入り / 🔍 検索 */}
           <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-slate-950/85 border border-slate-800">
@@ -522,6 +573,7 @@ export const PresetNav: React.FC<PresetNavProps> = ({
                 <div className="relative flex items-center flex-1 min-w-0">
                   <Search className="w-4 h-4 text-emerald-400 absolute left-3 pointer-events-none" />
                   <input
+                    ref={searchInputRef}
                     id="preset-search-input"
                     type="text"
                     enterKeyHint="search"
@@ -535,7 +587,6 @@ export const PresetNav: React.FC<PresetNavProps> = ({
                     }}
                     placeholder="地名・施設・山小屋・駅名などを入力"
                     aria-label="地名・施設・山名を検索"
-                    autoFocus
                     className="w-full rounded-xl bg-slate-950/90 border border-slate-700 focus:border-emerald-400 pl-9 pr-8 py-2 text-base sm:text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-emerald-400"
                   />
                   {searchQuery.length > 0 && (
@@ -553,7 +604,18 @@ export const PresetNav: React.FC<PresetNavProps> = ({
                 <button
                   type="submit"
                   id="preset-search-submit-btn"
-                  disabled={!searchQuery.trim() || isSearchingOsm}
+                  disabled={!searchQuery.trim()}
+                  onPointerDown={() => {
+                    // 日本語IME変換中（未確定状態）のまま「検索」ボタンをタップした場合、
+                    // ブラウザがIME確定(blur)でclick/submitイベントを消費してしまうケースを救済
+                    window.setTimeout(() => {
+                      if (Date.now() - lastExecutedAtRef.current < 100) return;
+                      const currentVal = (searchInputRef.current?.value ?? searchQuery).trim();
+                      if (currentVal.length > 0) {
+                        executeSearch(currentVal);
+                      }
+                    }, 35);
+                  }}
                   className="inline-flex items-center justify-center gap-1 min-h-[38px] px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:bg-slate-800 disabled:text-slate-500 text-slate-950 font-bold text-xs sm:text-xs transition-colors cursor-pointer disabled:cursor-not-allowed shrink-0"
                 >
                   {isSearchingOsm ? (
@@ -565,7 +627,10 @@ export const PresetNav: React.FC<PresetNavProps> = ({
                 </button>
               </form>
 
-              <div className="max-h-64 overflow-y-auto space-y-2.5 pr-1">
+              <div
+                key={`search-results-${submittedQuery}-${isSearchingOsm ? 'loading' : 'done'}-${osmResults.length}-${searchRenderVersion}`}
+                className="max-h-64 overflow-y-auto space-y-2.5 pr-1"
+              >
                 {!submittedQuery && !isSearchingOsm && (
                   <div className="py-6 px-3 text-center text-xs text-slate-400 bg-slate-950/60 rounded-xl border border-slate-800/80">
                     キーワードを入力して「検索」ボタンを押すと、全国の地名・施設（OpenStreetMap）や百名山から候補を表示します。

@@ -31,7 +31,7 @@
 .safe-top-dropdown {
   top: calc(var(--safe-top) + 3.85rem);
   right: calc(var(--safe-right) + 0.75rem);
-  max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 9.5rem);
+  max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 5rem);
 }
 
 @media (min-width: 640px) {

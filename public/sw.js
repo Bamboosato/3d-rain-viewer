@@ -1,5 +1,5 @@
-const SHELL_CACHE = 'rain3d-shell-v3';
-const RUNTIME_CACHE = 'rain3d-runtime-v3';
+const SHELL_CACHE = 'rain3d-shell-v4';
+const RUNTIME_CACHE = 'rain3d-runtime-v4';
 const MAX_RUNTIME_ENTRIES = 160;
 
 const PRECACHE_URLS = [
@@ -52,6 +52,17 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
 
+  // ローカル開発環境 (localhost / 127.0.0.1) や Vite HMR モジュールはキャッシュせず常にネットワーク直通
+  if (
+    url.hostname === 'localhost' ||
+    url.hostname === '127.0.0.1' ||
+    url.pathname.startsWith('/src/') ||
+    url.pathname.startsWith('/@') ||
+    url.pathname.startsWith('/node_modules/')
+  ) {
+    return;
+  }
+
   // 1. ナビゲーションリクエスト (HTML): Network-First + オフライン時はキャッシュされた index.html へフォールバック
   if (request.mode === 'navigate') {
     event.respondWith(
@@ -66,19 +77,18 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 2. 同一オリジンの静的アセット (/assets/*, アイコン, manifest): Cache-First
+  // 2. 同一オリジンの静的アセット (/assets/*, アイコン, manifest): Network-First (オフライン時キャッシュフォールバック)
   if (url.origin === self.location.origin) {
     event.respondWith(
-      caches.match(request).then((cached) => {
-        if (cached) return cached;
-        return fetch(request).then((response) => {
+      fetch(request)
+        .then((response) => {
           if (response && response.status === 200) {
             const clone = response.clone();
             caches.open(SHELL_CACHE).then((cache) => cache.put(request, clone));
           }
           return response;
-        });
-      })
+        })
+        .catch(() => caches.match(request))
     );
     return;
   }
