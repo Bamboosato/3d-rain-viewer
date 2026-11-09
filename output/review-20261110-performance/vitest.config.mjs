@@ -1,0 +1,1 @@
+export default { test: { environment: 'happy-dom', environmentOptions: { happyDOM: { url: 'https://performance.invalid/' } }, include: ['output/review-20261110-performance/*.test.ts'], fileParallelism: false, testTimeout: 15000 } };

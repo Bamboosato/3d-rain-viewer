@@ -1,0 +1,88 @@
+{
+  "P01": {
+    "before": {
+      "enumerations": 0,
+      "entries": 0,
+      "fileReads": 20,
+      "writes": 0,
+      "closeAttempts": 0,
+      "fallbackKeyScans": 0,
+      "network": 0
+    },
+    "after": {
+      "enumerations": 20,
+      "entries": 24000,
+      "fileReads": 20,
+      "writes": 0,
+      "closeAttempts": 0,
+      "fallbackKeyScans": 20,
+      "network": 0
+    }
+  },
+  "P02": {
+    "validOpfsHit": true,
+    "fallbackTimeoutMs": 2500,
+    "settledBeforeDeadline": false
+  },
+  "P03": {
+    "cachedTileExisted": true,
+    "networkCalls": 1,
+    "fileReads": 0,
+    "scanEntriesAfterTimeout": 1200
+  },
+  "P04": {
+    "settledOnAbort": false,
+    "returnedCachedDataAfterAbort": true
+  },
+  "P05": {
+    "before": {
+      "enumerations": 0,
+      "entries": 0,
+      "fileReads": 0,
+      "writes": 1,
+      "closeAttempts": 1
+    },
+    "after": {
+      "enumerations": 2,
+      "entries": 2401,
+      "fileReads": 1201,
+      "writes": 1,
+      "closeAttempts": 1
+    }
+  },
+  "P06": {
+    "before": {
+      "keys": 0,
+      "bodyReads": 0,
+      "bytesRead": 0,
+      "puts": 1
+    },
+    "after": {
+      "keys": 2,
+      "bodyReads": 600,
+      "bytesRead": 60000000,
+      "puts": 1
+    }
+  },
+  "P07": {
+    "validNetworkResults": 40,
+    "persisted": 32,
+    "memoryOnlyEvents": 8,
+    "afterMemoryRevisitPersisted": 32,
+    "backendFailure": false
+  },
+  "P08": {
+    "before": {
+      "keys": 1,
+      "bodyReads": 0,
+      "bytesRead": 0,
+      "puts": 1
+    },
+    "after": {
+      "keys": 1,
+      "bodyReads": 400,
+      "bytesRead": 40000000,
+      "puts": 1
+    }
+  }
+}

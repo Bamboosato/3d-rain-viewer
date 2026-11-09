@@ -1,0 +1,29 @@
+{
+  "reviewDateJST": "2026-11-10",
+  "baseCommit": "dda9efc2de216ca9f93efcee7418034db6c10ac4",
+  "state": "local uncommitted implementation",
+  "unitPassed": 105,
+  "unitFailed": 0,
+  "e2e": {
+    "startTime": "2026-11-09T23:50:40.411Z",
+    "duration": 35723.066,
+    "expected": 2,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "build": "passed tsc -b and vite build",
+  "entryAsset": "index-CZR7qOxR.js",
+  "sourceHashes": {
+    "src\\lib\\opfsTileCache.ts": "22bf951735096b9f99b08105d08ae928aebfdb24bbcc3b49238fb98612fb4433",
+    "src\\lib\\diagnostics.ts": "9a7cf58fdc95262821722ec31afa05b37251cbfd48dae3462a4ddec4b26df114",
+    "src\\App.tsx": "4ef4fad2e76c6d61c6a47ac6d21e4feaba3f9db7280f105f0b606df2c3774379",
+    "public\\sw.js": "b0b4834a1c771506d9e69a97837559a71ac165033c56ccb3f016b1a70b5fee7a",
+    "tests\\cache_performance.test.ts": "47e22890fe4d475354cfe2accad15c8ec77eb7199833020eecd2ecf553a1d296",
+    "e2e\\browser_core.spec.ts": "ef094b847a5be2e57043163e32eb364602bc6b282dbb3acdf810b6e020ec30c7",
+    "e2e\\server.mjs": "7a7caa71522b7bea9b32105a391767617358deaf5f80395138e18c8f8833e3ab",
+    "e2e\\jaxa-fixture.mjs": "ab19a38854d59ec5d787f295127f5d32adfa4e76cb70a818c7a1025b4e484710",
+    "docs\\design_cache_and_lifecycle_notes.md": "d5f7192b5a04740f8f0eca0128725a56d0f247c2637835e60f39ccfacc0a0302",
+    "docs\\pr10-performance-fix-results-20261110.md": "32db791618a963d23c82a6311c94ecd39602779f1e734b5b2359526d061ba223"
+  }
+}

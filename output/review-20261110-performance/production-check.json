@@ -1,0 +1,24 @@
+{
+  "url": "https://3d-rain-viewer.bamboosato.com",
+  "assets": [
+    "/assets/index-BLeJ0zfN.js",
+    "/assets/index-Cp0WAnP0.css"
+  ],
+  "checks": [
+    {
+      "path": "/sw.js",
+      "sha256": "59b52a3e7024ad1df693f883040d79addff8ff34d19bf764392351b9ff460d04",
+      "matchesLocalBuild": false,
+      "bytes": 4101,
+      "cache": null,
+      "matchesLocalBuildAfterNewlineNormalization": true
+    },
+    {
+      "path": "/assets/index-BLeJ0zfN.js",
+      "sha256": "2b3aa90669c0c7608b90b4aa2127594545553af84875b15ff1453c1d44e9171e",
+      "matchesLocalBuild": true,
+      "bytes": 1617296,
+      "cache": null
+    }
+  ]
+}

@@ -41,3 +41,8 @@ Thumbs.db
 /output/implementation-20261109/e2e-update-diagnostic-first.json
 /output/implementation-20261109/e2e-update-pending-diagnostic.json
 /output/pr-body-*.md
+/output/implementation-20261110-performance/before-*
+/output/implementation-20261110-performance/unit-first.json
+/output/implementation-20261110-performance/unit-second.json
+/output/implementation-20261110-performance/e2e-before-pagehide-fix.json
+/output/review-20261110-performance/production-*.js

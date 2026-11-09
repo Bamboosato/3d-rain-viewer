@@ -1,0 +1,50 @@
+{
+  "P01": {
+    "enumerations": 1,
+    "entries": 1200,
+    "fileReads": 20,
+    "writes": 0,
+    "closeAttempts": 0,
+    "fallbackKeyScans": 1,
+    "network": 0
+  },
+  "P02": {
+    "settledWithinMs": 30
+  },
+  "P03": {
+    "cachedTileUsed": true,
+    "networkCalls": 0,
+    "scanEntriesAfterTimeout": 2
+  },
+  "P04": {
+    "rejectedOnAbort": true
+  },
+  "P05": {
+    "enumerations": 1,
+    "entries": 1200,
+    "fileReads": 4,
+    "writes": 1,
+    "closeAttempts": 1
+  },
+  "P06": {
+    "keys": 1,
+    "bodyReads": 4,
+    "bytesRead": 400000,
+    "puts": 1
+  },
+  "P07": {
+    "validNetworkResults": 40,
+    "persisted": 40,
+    "deferred": 8,
+    "memoryOnlyEvents": 0
+  },
+  "P08": {
+    "legacyBodyReads": 4,
+    "legacyBytesRead": 400000,
+    "incomingBytesRead": 100000
+  },
+  "P09": {
+    "writesAfterDocumentClose": 1,
+    "falseStorageErrors": 0
+  }
+}

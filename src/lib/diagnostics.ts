@@ -2,7 +2,7 @@ import type { ErrorKind } from '../types/status';
 export interface DiagnosticEvent {
   operation: 'favorites-read' | 'favorites-commit' | 'tile-read' | 'tile-write' | 'catalog' | 'frame';
   backend: 'idb' | 'localStorage' | 'opfs' | 'cache' | 'memory' | 'network';
-  outcome: 'success' | 'failure' | 'hit' | 'miss' | 'stale' | 'memory-only';
+  outcome: 'success' | 'failure' | 'hit' | 'miss' | 'stale' | 'memory-only' | 'deferred';
   bytes?: number;
   count?: number;
   durationMs?: number;

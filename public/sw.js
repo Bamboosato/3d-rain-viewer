@@ -20,35 +20,55 @@ self.addEventListener('activate', event => {
     key !== SHELL_CACHE && key !== PREVIOUS_SHELL_CACHE && key !== RUNTIME_CACHE
   ).map(key => caches.delete(key)))).then(() => self.clients.claim()));
 });
-async function trimCache(cache, maxItems, maxBytes, force = false) {
-  const keys = await cache.keys();
-  const entries = [];
-  let bytes = 0;
-  for (const request of keys) {
-    const response = await cache.match(request);
-    const size = response ? (await response.arrayBuffer()).byteLength : 0;
-    bytes += size; entries.push({ request, size });
+// Cache inventories are shared for the worker lifetime. Legacy sizes are migrated in
+// bounded batches; new responses carry decoded byte size, so no full-body rescan is needed.
+const inventories = new Map();
+async function inventory(name, cache) {
+  if (!inventories.has(name)) {
+    const pending = cache.keys().then(keys => new Map(keys.map(request => [request.url, { request, size: undefined }])));
+    inventories.set(name, pending);
+    pending.catch(() => { if (inventories.get(name) === pending) inventories.delete(name); });
   }
-  let count = entries.length;
-  const target = force ? Math.floor(count * 0.8) : maxItems;
-  for (const entry of entries) {
-    if (count <= target && bytes <= maxBytes * (force ? 0.8 : 1)) break;
-    await cache.delete(entry.request); count--; bytes -= entry.size;
+  return inventories.get(name);
+}
+async function trimCache(cache, entries, maxItems, maxBytes, force = false) {
+  let audited = 0;
+  for (const entry of entries.values()) {
+    if (entry.size !== undefined) continue;
+    if (audited++ >= 4) break;
+    const response = await cache.match(entry.request);
+    const stored = response?.headers?.get('x-rain3d-bytes');
+    entry.size = stored ? Number(stored) : response ? (await response.arrayBuffer()).byteLength : 0;
+  }
+  let bytes = [...entries.values()].reduce((sum, entry) => sum + (entry.size || 0), 0);
+  const target = force ? Math.floor(entries.size * 0.8) : maxItems;
+  for (const [key, entry] of entries) {
+    if (entries.size <= target && bytes <= maxBytes * (force ? 0.8 : 1)) break;
+    await cache.delete(entry.request); bytes -= entry.size || 0; entries.delete(key);
   }
 }
 function persist(name, request, response) {
   if (!response || response.status !== 200) return Promise.resolve();
   const task = (queues.get(name) || Promise.resolve()).then(async () => {
     const cache = await caches.open(name);
+    const entries = await inventory(name, cache);
     const count = name === SHELL_CACHE ? MAX_SHELL_ENTRIES : MAX_RUNTIME_ENTRIES;
     const bytes = name === SHELL_CACHE ? 40 * 1024 * 1024 : MAX_RUNTIME_BYTES;
-    try { await cache.put(request, response.clone()); }
+    // Read this incoming body once, rather than every existing response for every write.
+    const body = await response.arrayBuffer();
+    const headers = new Headers(response.headers);
+    headers.delete('content-encoding'); headers.delete('content-length');
+    headers.set('x-rain3d-bytes', String(body.byteLength));
+    const stored = new Response(body, { status: response.status, statusText: response.statusText, headers });
+    try { await cache.put(request, stored.clone()); }
     catch (error) {
       if (error?.name !== 'QuotaExceededError') throw error;
-      await trimCache(cache, count, bytes, true);
-      await cache.put(request, response.clone());
+      await trimCache(cache, entries, count, bytes, true);
+      await cache.put(request, stored.clone());
     }
-    await trimCache(cache, count, bytes);
+    const key = typeof request === 'string' ? new URL(request, self.location.origin).href : request.url;
+    entries.delete(key); entries.set(key, { request, size: body.byteLength });
+    await trimCache(cache, entries, count, bytes);
   }).catch(() => {});
   queues.set(name, task);
   return task;
