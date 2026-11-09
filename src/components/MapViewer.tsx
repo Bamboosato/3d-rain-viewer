@@ -124,6 +124,8 @@ export const MapViewer: React.FC<MapViewerProps> = ({
     let frameCount = 0;
     let lastFpsTime = performance.now();
     let resizeObserver: ResizeObserver | null = null;
+    let clearTileLoadingTimeout = () => {};
+    let clearMoveEndSettleTimer = () => {};
     let backendStatus: Omit<WebGPUStatus, 'fps'> = {
       backend: 'webgpu',
       webgpuAvailable: true,
@@ -207,33 +209,63 @@ export const MapViewer: React.FC<MapViewerProps> = ({
           bearing: map.getBearing(),
         });
       };
-      map.on('moveend', emitCameraView);
-
       // 地図・地形タイルの読み込み状態追跡（シンプルなローディングスピナー用）
       let tileLoadingTimeout: ReturnType<typeof setTimeout> | null = null;
-      const clearTileLoadingTimeout = () => {
+      let moveEndSettleTimer: ReturnType<typeof setTimeout> | null = null;
+
+      clearTileLoadingTimeout = () => {
         if (tileLoadingTimeout !== null) {
           clearTimeout(tileLoadingTimeout);
           tileLoadingTimeout = null;
         }
       };
 
+      clearMoveEndSettleTimer = () => {
+        if (moveEndSettleTimer !== null) {
+          clearTimeout(moveEndSettleTimer);
+          moveEndSettleTimer = null;
+        }
+      };
+
+      // カメラ移動完了時に現在の3D視点パラメータを通知（URL同期用）およびパン・ドラッグ後のスピナー停止判定
+      const handleMoveEnd = () => {
+        if (disposed) return;
+        emitCameraView();
+
+        // 画面ドラッグ・スクロール操作終了後、画面内タイルが揃った時点で速やかにスピナーを停止
+        clearMoveEndSettleTimer();
+        let retries = 4;
+        const checkSettle = () => {
+          if (disposed) return;
+          if (map.areTilesLoaded() || retries <= 0) {
+            clearTileLoadingTimeout();
+            setIsTilesLoading(false);
+          } else {
+            retries -= 1;
+            moveEndSettleTimer = setTimeout(checkSettle, 200);
+          }
+        };
+        moveEndSettleTimer = setTimeout(checkSettle, 250);
+      };
+      map.on('moveend', handleMoveEnd);
+
       const handleDataLoading = (e: maplibregl.MapDataEvent) => {
         if (disposed) return;
         if (e.dataType === 'tile' || e.dataType === 'source') {
           setIsTilesLoading(true);
           clearTileLoadingTimeout();
-          // iOS WebKit 等で idle イベントが欠落した場合も最大 4 秒でスピナーを安全に解除
+          // iOS WebKit 等で idle イベントが遅延・欠落した場合も最大 2.5 秒でスピナーを安全に解除
           tileLoadingTimeout = setTimeout(() => {
             if (!disposed) {
               setIsTilesLoading(false);
             }
-          }, 4000);
+          }, 2500);
         }
       };
       const handleIdle = () => {
         if (disposed) return;
         clearTileLoadingTimeout();
+        clearMoveEndSettleTimer();
         setIsTilesLoading(false);
       };
 
@@ -242,6 +274,7 @@ export const MapViewer: React.FC<MapViewerProps> = ({
       map.on('error', () => {
         if (disposed) return;
         clearTileLoadingTimeout();
+        clearMoveEndSettleTimer();
         setIsTilesLoading(false);
       });
 
@@ -375,6 +408,8 @@ export const MapViewer: React.FC<MapViewerProps> = ({
 
     return () => {
       disposed = true;
+      clearTileLoadingTimeout();
+      clearMoveEndSettleTimer();
       cancelAnimationFrame(rafId);
       resizeObserver?.disconnect();
       isMapLoadedRef.current = false;
