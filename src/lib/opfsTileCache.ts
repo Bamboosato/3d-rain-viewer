@@ -228,55 +228,60 @@ async function writeToPersistentCache(
   bytes: Uint8Array
 ): Promise<void> {
   if (bytes.byteLength === 0) return;
+  // メモリキャッシュは常に先行更新（iOSのストレージ書込み例外時もメモリヒットを保証）
   setMemoryCache(category, key, bytes);
 
   const fileName = toSafeFileName(key);
-  const dir = await getCategoryOpfsDir(category);
 
-  if (dir) {
-    try {
-      const fileHandle = await dir.getFileHandle(fileName, { create: true });
-      const writableHandle = fileHandle as FileSystemFileHandle & {
-        createWritable?: () => Promise<{
-          write: (data: BufferSource) => Promise<void>;
-          close: () => Promise<void>;
-        }>;
-      };
+  try {
+    const dir = await getCategoryOpfsDir(category);
+    if (dir) {
+      try {
+        const fileHandle = await dir.getFileHandle(fileName, { create: true });
+        const writableHandle = fileHandle as FileSystemFileHandle & {
+          createWritable?: () => Promise<{
+            write: (data: BufferSource) => Promise<void>;
+            close: () => Promise<void>;
+          }>;
+        };
 
-      if (typeof writableHandle.createWritable === 'function') {
-        const writable = await writableHandle.createWritable();
+        if (typeof writableHandle.createWritable === 'function') {
+          const writable = await writableHandle.createWritable();
+          const copy = new Uint8Array(bytes.byteLength);
+          copy.set(bytes);
+          await writable.write(copy);
+          await writable.close();
+
+          writeCountByCategory[category] += 1;
+          if (writeCountByCategory[category] % 60 === 0) {
+            void pruneOpfsDirectoryIfNeeded(category);
+          }
+          return;
+        }
+      } catch {
+        // createWritable が失敗（iOS Safariのロック競合等）した場合は Cache Storage フォールバックへ
+      }
+    }
+
+    if (typeof caches !== 'undefined') {
+      try {
+        const cache = await caches.open(FALLBACK_CACHE_NAME);
         const copy = new Uint8Array(bytes.byteLength);
         copy.set(bytes);
-        await writable.write(copy);
-        await writable.close();
-
-        writeCountByCategory[category] += 1;
-        if (writeCountByCategory[category] % 60 === 0) {
-          void pruneOpfsDirectoryIfNeeded(category);
-        }
-        return;
+        const response = new Response(copy.buffer, {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/octet-stream',
+            'x-cached-at': String(Date.now()),
+          },
+        });
+        await cache.put(`https://opfs-fallback.local/${category}/${fileName}`, response);
+      } catch {
+        // ignore
       }
-    } catch {
-      // createWritable が失敗した場合は Cache Storage フォールバックへ
     }
-  }
-
-  if (typeof caches !== 'undefined') {
-    try {
-      const cache = await caches.open(FALLBACK_CACHE_NAME);
-      const copy = new Uint8Array(bytes.byteLength);
-      copy.set(bytes);
-      const response = new Response(copy.buffer, {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/octet-stream',
-          'x-cached-at': String(Date.now()),
-        },
-      });
-      await cache.put(`https://opfs-fallback.local/${category}/${fileName}`, response);
-    } catch {
-      // ignore
-    }
+  } catch {
+    // 永続ストレージ書き込み失敗時もメモリキャッシュで動作を継続
   }
 }
 

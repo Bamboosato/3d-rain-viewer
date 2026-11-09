@@ -194,10 +194,10 @@ export function registerJaxaTerrainProtocol(tileSize = 256): void {
     const x = parseInt(parts[1], 10);
     const y = parseInt(parts[2], 10);
 
-    // 失敗時は標高0mのダミーPNGで誤確定させず、例外を投げてMapLibreにリトライさせる
+    // 過去バージョンで0m平坦タイルとしてキャッシュされてしまった残骸を無効化するためキーを v2 に更新
     const buffer = await getTileWithOpfsSWR({
       category: 'terrain',
-      key: `aw3d_${tileSize}_${z}_${x}_${y}`,
+      key: `aw3d_v2_${tileSize}_${z}_${x}_${y}`,
       fetcher: async (sig) => {
         let lastError: unknown = null;
         for (let attempt = 0; attempt <= 2; attempt++) {
