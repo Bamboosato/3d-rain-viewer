@@ -12,6 +12,7 @@
   "dependencies": {
     "lucide-react": "^1.16.0",
     "maplibre-gl": "^5.17.0",
+    "qrcode-generator": "^2.0.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

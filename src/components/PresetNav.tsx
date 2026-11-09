@@ -12,6 +12,7 @@ import {
   Loader2,
   Share2,
   Check,
+  ArrowRightLeft,
 } from 'lucide-react';
 import type { PresetLocation } from '../types/map';
 import { AREA_GROUPS } from '../lib/hyakumeizanData';
@@ -35,6 +36,10 @@ interface PresetNavProps {
   onSelectPreset: (preset: PresetLocation) => void;
   onRemoveFavorite?: (id: string) => void;
   onShareFavorite?: (preset: PresetLocation) => void;
+  /** お気に入りのバックアップ・引き継ぎダイアログを開く */
+  onOpenFavoritesSync?: () => void;
+  /** バックアップ推奨バッジを表示するか */
+  backupRecommended?: boolean;
   isOpen?: boolean;
   onToggleOpen?: () => void;
 }
@@ -47,6 +52,8 @@ export const PresetNav: React.FC<PresetNavProps> = ({
   onSelectPreset,
   onRemoveFavorite,
   onShareFavorite,
+  onOpenFavoritesSync,
+  backupRecommended = false,
   isOpen: controlledIsOpen,
   onToggleOpen,
 }) => {
@@ -531,8 +538,26 @@ export const PresetNav: React.FC<PresetNavProps> = ({
           {/* === タブ2: ⭐ お気に入り（検索枠なし・シンプル一覧） === */}
           {activeTab === 'favorites' && (
             <div className="space-y-1.5">
-              <div className="text-xs text-slate-300 font-semibold px-0.5">
-                登録済みのお気に入り ({favorites.length}件)
+              <div className="flex items-center justify-between gap-2 text-xs text-slate-300 font-semibold px-0.5">
+                <span className="truncate">登録済みのお気に入り ({favorites.length}件)</span>
+                {onOpenFavoritesSync && (
+                  <button
+                    type="button"
+                    id="favorites-sync-open-btn"
+                    onClick={onOpenFavoritesSync}
+                    title="お気に入りのバックアップ・他の端末への引き継ぎ"
+                    className="relative inline-flex items-center gap-1 shrink-0 min-h-[30px] px-2 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/40 text-amber-200 text-[11px] font-bold transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                  >
+                    <ArrowRightLeft className="w-3.5 h-3.5" />
+                    バックアップ・引き継ぎ
+                    {backupRecommended && (
+                      <span
+                        className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-slate-900"
+                        aria-label="バックアップをおすすめします"
+                      />
+                    )}
+                  </button>
+                )}
               </div>
 
               <div
@@ -634,6 +659,11 @@ export const PresetNav: React.FC<PresetNavProps> = ({
                 {favorites.length === 0 && (
                   <div className="col-span-full py-6 px-3 text-center text-xs text-slate-400 bg-slate-950/60 rounded-xl border border-slate-800/80">
                     地図上の地点をタップして「⭐ お気に入りに追加」から登録できます。
+                    {onOpenFavoritesSync && (
+                      <span className="block mt-1">
+                        別の端末のお気に入りやバックアップは「バックアップ・引き継ぎ」から取り込めます。
+                      </span>
+                    )}
                   </div>
                 )}
               </div>
