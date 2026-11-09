@@ -45,18 +45,6 @@ export const BASE_MAP_SOURCES: Record<
 let protocolRegistered = false;
 const flatZeroTerrainPngCache = new Map<number, Uint8Array>();
 
-// 1x1 透過 PNG バイナリ (MapLibre での中断時にエラー化せず安全に unloaded へ遷移させるフォールバック)
-const TRANSPARENT_1X1_PNG = new Uint8Array([
-  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
-  0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
-  0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
-  0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89,
-  0x00, 0x00, 0x00, 0x0a, 0x49, 0x44, 0x41, 0x54,
-  0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4,
-  0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44,
-  0xae, 0x42, 0x60, 0x82,
-]);
-
 /**
  * WebGPU (navigator.gpu) の対応状況を検出し、可能な限り高パフォーマンスGPUアダプタ・デバイスを要求します。
  * 未対応環境では安全に WebGL2 へフォールバックします。
@@ -176,10 +164,7 @@ export function registerJaxaTerrainProtocol(tileSize = 256): void {
   protocolRegistered = true;
 
   // 1. 背景地図タイル (OSM / 国土地理院淡色 / Esri航空写真): OPFS Stale-While-Revalidate + 通信リトライ
-  maplibregl.addProtocol('opfs-raster', async (params, abortController) => {
-    if (abortController.signal.aborted) {
-      return { data: TRANSPARENT_1X1_PNG.buffer.slice(0) };
-    }
+  maplibregl.addProtocol('opfs-raster', async (params) => {
     const parts = params.url.replace('opfs-raster://', '').split('/');
     const sourceId = (parts[0] as BaseMapId) || 'osm';
     const z = parseInt(parts[1], 10);
@@ -192,91 +177,50 @@ export function registerJaxaTerrainProtocol(tileSize = 256): void {
       .replace('{x}', String(x))
       .replace('{y}', String(y));
 
-    try {
-      const buffer = await getTileWithOpfsSWR({
-        category: 'raster',
-        key: `${sourceId}_${z}_${x}_${y}`,
-        fetcher: (sig) => fetchTileBytesWithRetry(upstreamUrl, sig),
-        signal: abortController.signal,
-      });
+    const buffer = await getTileWithOpfsSWR({
+      category: 'raster',
+      key: `${sourceId}_${z}_${x}_${y}`,
+      fetcher: () => fetchTileBytesWithRetry(upstreamUrl),
+    });
 
-      if (abortController.signal.aborted) {
-        return { data: TRANSPARENT_1X1_PNG.buffer.slice(0) };
-      }
-
-      return { data: buffer };
-    } catch (err) {
-      if (abortController.signal.aborted) {
-        return { data: TRANSPARENT_1X1_PNG.buffer.slice(0) };
-      }
-      throw err;
-    }
+    return { data: buffer };
   });
 
   // 2. 3D標高DEMタイル (JAXA AW3D30): OPFS Stale-While-Revalidate
-  maplibregl.addProtocol('jaxa-aw3d', async (params, abortController) => {
-    if (abortController.signal.aborted) {
-      return { data: TRANSPARENT_1X1_PNG.buffer.slice(0) };
-    }
+  maplibregl.addProtocol('jaxa-aw3d', async (params) => {
     const parts = params.url.replace('jaxa-aw3d://', '').split('/');
     const z = parseInt(parts[0], 10);
     const x = parseInt(parts[1], 10);
     const y = parseInt(parts[2], 10);
 
-    try {
-      // 過去バージョンで0m平坦タイルとしてキャッシュされてしまった残骸を無効化するためキーを v2 に更新
-      const buffer = await getTileWithOpfsSWR({
-        category: 'terrain',
-        key: `aw3d_v2_${tileSize}_${z}_${x}_${y}`,
-        fetcher: async (sig) => {
-          let lastError: unknown = null;
-          for (let attempt = 0; attempt <= 2; attempt++) {
-            if (sig?.aborted) {
-              return TRANSPARENT_1X1_PNG;
+    // 過去バージョンで0m平坦タイルとしてキャッシュされてしまった残骸を無効化するためキーを v2 に更新
+    const buffer = await getTileWithOpfsSWR({
+      category: 'terrain',
+      key: `aw3d_v2_${tileSize}_${z}_${x}_${y}`,
+      fetcher: async () => {
+        let lastError: unknown = null;
+        for (let attempt = 0; attempt <= 2; attempt++) {
+          try {
+            const tg = await getAW3DTileGenerator(tileSize);
+            (tg as any).aborted = false;
+            const dataObject = await tg.getDataObject(x, y, z);
+            if (!dataObject || !dataObject.data) {
+              throw new Error('No land elevation data for tile');
             }
-            try {
-              const tg = await getAW3DTileGenerator(tileSize);
-              (tg as any).aborted = false;
-              if (sig?.aborted) {
-                return TRANSPARENT_1X1_PNG;
-              }
-              const dataObject = await tg.getDataObject(x, y, z, sig);
-              if (sig?.aborted) {
-                return TRANSPARENT_1X1_PNG;
-              }
-              if (!dataObject || !dataObject.data) {
-                throw new Error('No land elevation data for tile');
-              }
-              const png = await encodeTerrainRGBPng(dataObject.data, tileSize);
-              if (sig?.aborted) {
-                return TRANSPARENT_1X1_PNG;
-              }
-              return png;
-            } catch (err) {
-              lastError = err;
-              if (sig?.aborted) {
-                return TRANSPARENT_1X1_PNG;
-              }
-              if (attempt < 2) {
-                await new Promise((res) => setTimeout(res, 180 * (attempt + 1)));
-              }
+            const png = await encodeTerrainRGBPng(dataObject.data, tileSize);
+            return png;
+          } catch (err) {
+            lastError = err;
+            if (attempt < 2) {
+              await new Promise((res) => setTimeout(res, 180 * (attempt + 1)));
             }
           }
-          throw lastError ?? new Error(`Failed to load terrain tile ${z}/${x}/${y}`);
-        },
-        signal: abortController.signal,
-      });
+        }
+        throw lastError ?? new Error(`Failed to load terrain tile ${z}/${x}/${y}`);
+      },
+    });
 
-      if (abortController.signal.aborted) {
-        return { data: TRANSPARENT_1X1_PNG.buffer.slice(0) };
-      }
-      return { data: buffer };
-    } catch (err) {
-      if (abortController.signal.aborted) {
-        return { data: TRANSPARENT_1X1_PNG.buffer.slice(0) };
-      }
-      throw err;
-    }
+    return { data: buffer };
   });
 }
 

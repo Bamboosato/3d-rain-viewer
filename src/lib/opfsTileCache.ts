@@ -141,7 +141,8 @@ async function readFromPersistentCache(
     try {
       const fileHandle = await dir.getFileHandle(fileName, { create: false });
       const file = await fileHandle.getFile();
-      if (file.size > 0) {
+      // 100バイト超の有効なタイルデータのみキャッシュヒットとして扱う（前回のダミー残骸を自動破棄）
+      if (file.size > 100) {
         const ab = await file.arrayBuffer();
         const bytes = new Uint8Array(ab);
         setMemoryCache(category, key, bytes);
@@ -149,6 +150,8 @@ async function readFromPersistentCache(
           bytes,
           updatedAt: file.lastModified || Date.now(),
         };
+      } else {
+        void dir.removeEntry(fileName).catch(() => {});
       }
     } catch {
       // OPFSに未キャッシュの場合は下位の確認へ
@@ -161,13 +164,15 @@ async function readFromPersistentCache(
       const cache = await caches.open(FALLBACK_CACHE_NAME);
       const res = await cache.match(`https://opfs-fallback.local/${category}/${fileName}`);
       if (res && res.ok) {
-        const updatedAtHeader = res.headers.get('x-cached-at');
-        const updatedAt = updatedAtHeader ? Number(updatedAtHeader) : Date.now();
         const ab = await res.arrayBuffer();
-        if (ab.byteLength > 0) {
+        if (ab.byteLength > 100) {
+          const updatedAtHeader = res.headers.get('x-cached-at');
+          const updatedAt = updatedAtHeader ? Number(updatedAtHeader) : Date.now();
           const bytes = new Uint8Array(ab);
           setMemoryCache(category, key, bytes);
           return { bytes, updatedAt };
+        } else {
+          void cache.delete(`https://opfs-fallback.local/${category}/${fileName}`).catch(() => {});
         }
       }
     } catch {
@@ -371,7 +376,7 @@ export async function getTileWithOpfsSWR(options: {
 
     fetcher()
       .then((freshBytes) => {
-        if (freshBytes && freshBytes.byteLength > 67) {
+        if (freshBytes && freshBytes.byteLength > 100) {
           return writeToPersistentCache(category, key, freshBytes);
         }
       })
@@ -385,7 +390,7 @@ export async function getTileWithOpfsSWR(options: {
 
   // 1. L1 メモリキャッシュ確認（最速: 0ms）
   const memHit = memoryCaches[category].get(key);
-  if (memHit && memHit.bytes.byteLength > 0) {
+  if (memHit && memHit.bytes.byteLength > 100) {
     if (Date.now() - memHit.updatedAt > REVALIDATE_INTERVAL_MS[category]) {
       triggerBackgroundRevalidation();
     }
@@ -394,7 +399,7 @@ export async function getTileWithOpfsSWR(options: {
 
   // 2. L2 OPFS 永続キャッシュ確認（高速: < 1〜2ms）
   const diskHit = await readFromPersistentCache(category, key);
-  if (diskHit && diskHit.bytes.byteLength > 0) {
+  if (diskHit && diskHit.bytes.byteLength > 100) {
     if (Date.now() - diskHit.updatedAt > REVALIDATE_INTERVAL_MS[category]) {
       triggerBackgroundRevalidation();
     }
@@ -406,7 +411,7 @@ export async function getTileWithOpfsSWR(options: {
   if (!requestPromise) {
     requestPromise = fetcher(signal)
       .then((bytes) => {
-        if (bytes && bytes.byteLength > 67) {
+        if (bytes && bytes.byteLength > 100) {
           void writeToPersistentCache(category, key, bytes);
         }
         return bytes;
