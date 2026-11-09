@@ -89,7 +89,8 @@ export async function getAW3DTileGenerator(tileSize = 256): Promise<TileGenerato
         collectionUrl: AW3D30_COLLECTION_URL,
         band: 'DSM',
         tileSize,
-        delay: 100,
+        // iOS Safari でドラッグ・パン中に setInterval がサスペンドしてタイル詰まりを起こすのを防ぐため 0ms（即時）に最適化
+        delay: 0,
       });
       await tg.init();
       return tg;

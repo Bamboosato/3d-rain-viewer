@@ -210,21 +210,40 @@ export const MapViewer: React.FC<MapViewerProps> = ({
       map.on('moveend', emitCameraView);
 
       // 地図・地形タイルの読み込み状態追跡（シンプルなローディングスピナー用）
+      let tileLoadingTimeout: ReturnType<typeof setTimeout> | null = null;
+      const clearTileLoadingTimeout = () => {
+        if (tileLoadingTimeout !== null) {
+          clearTimeout(tileLoadingTimeout);
+          tileLoadingTimeout = null;
+        }
+      };
+
       const handleDataLoading = (e: maplibregl.MapDataEvent) => {
         if (disposed) return;
         if (e.dataType === 'tile' || e.dataType === 'source') {
           setIsTilesLoading(true);
+          clearTileLoadingTimeout();
+          // iOS WebKit 等で idle イベントが欠落した場合も最大 4 秒でスピナーを安全に解除
+          tileLoadingTimeout = setTimeout(() => {
+            if (!disposed) {
+              setIsTilesLoading(false);
+            }
+          }, 4000);
         }
       };
       const handleIdle = () => {
         if (disposed) return;
-        if (map.areTilesLoaded()) {
-          setIsTilesLoading(false);
-        }
+        clearTileLoadingTimeout();
+        setIsTilesLoading(false);
       };
 
       map.on('dataloading', handleDataLoading);
       map.on('idle', handleIdle);
+      map.on('error', () => {
+        if (disposed) return;
+        clearTileLoadingTimeout();
+        setIsTilesLoading(false);
+      });
 
       renderFavoriteMarkers(map, latestFavoritesRef.current);
 
