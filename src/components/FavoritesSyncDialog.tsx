@@ -266,7 +266,13 @@ export const FavoritesSyncDialog: React.FC<FavoritesSyncDialogProps> = ({
       role="dialog"
       aria-modal="true"
       aria-labelledby="favorites-sync-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 backdrop-blur-sm"
+      style={{
+        paddingTop: 'calc(var(--safe-top) + 0.75rem)',
+        paddingBottom: 'calc(var(--safe-bottom) + 0.75rem)',
+        paddingLeft: 'calc(var(--safe-left) + 0.75rem)',
+        paddingRight: 'calc(var(--safe-right) + 0.75rem)',
+      }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-sm"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -274,25 +280,32 @@ export const FavoritesSyncDialog: React.FC<FavoritesSyncDialogProps> = ({
       <div
         ref={dialogRef}
         tabIndex={-1}
-        className="w-full max-w-md max-h-[calc(100dvh-1.5rem)] overflow-y-auto rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl p-4 sm:p-5 text-slate-100 text-xs space-y-3 focus:outline-none select-text"
+        style={{
+          maxHeight: 'calc(100dvh - var(--safe-top) - var(--safe-bottom) - 1.5rem)',
+        }}
+        className="w-full max-w-md flex flex-col rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl text-slate-100 text-xs focus:outline-none select-text overflow-hidden"
       >
-        <div className="flex items-center justify-between pb-2.5 border-b border-slate-800">
+        {/* ダイアログ上部ヘッダー（スクロール時も常時固定して閉じられるよう sticky 配置） */}
+        <div className="shrink-0 flex items-center justify-between px-4 sm:px-5 py-3 border-b border-slate-800 bg-slate-900/95 backdrop-blur-md">
           <h2
             id="favorites-sync-title"
-            className="inline-flex items-center gap-1.5 text-sm font-bold text-white"
+            className="inline-flex items-center gap-1.5 text-sm font-bold text-white min-w-0"
           >
-            <ArrowRightLeft className="w-4 h-4 text-amber-400" />
-            お気に入りのバックアップ・引き継ぎ
+            <ArrowRightLeft className="w-4 h-4 text-amber-400 shrink-0" />
+            <span className="truncate">お気に入りのバックアップ・引き継ぎ</span>
           </h2>
           <button
             type="button"
             aria-label="閉じる"
             onClick={onClose}
-            className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 shrink-0"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
+
+        {/* ダイアログ本体（スクロール領域） */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3">
 
         {status && (
           <div
@@ -545,6 +558,7 @@ export const FavoritesSyncDialog: React.FC<FavoritesSyncDialogProps> = ({
             )}
           </>
         )}
+        </div>
       </div>
     </div>
   );

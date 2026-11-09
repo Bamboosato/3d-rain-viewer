@@ -1210,9 +1210,20 @@ export const App: React.FC = () => {
           role="dialog"
           aria-modal="true"
           aria-labelledby="jaxa-credit-title"
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm"
+          style={{
+            paddingTop: 'calc(var(--safe-top) + 0.75rem)',
+            paddingBottom: 'calc(var(--safe-bottom) + 0.75rem)',
+            paddingLeft: 'calc(var(--safe-left) + 0.75rem)',
+            paddingRight: 'calc(var(--safe-right) + 0.75rem)',
+          }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm"
         >
-          <div className="w-full max-w-lg rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl p-5 text-slate-100 text-xs space-y-3">
+          <div
+            style={{
+              maxHeight: 'calc(100dvh - var(--safe-top) - var(--safe-bottom) - 1.5rem)',
+            }}
+            className="w-full max-w-lg overflow-y-auto rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl p-4 sm:p-5 text-slate-100 text-xs space-y-3"
+          >
             <div className="flex items-center justify-between pb-2.5 border-b border-slate-800">
               <h2 id="jaxa-credit-title" className="text-sm font-bold text-white">
                 データソース・ライセンス表記 (JAXA Earth API / 気象庁ナウキャスト)
