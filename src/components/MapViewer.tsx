@@ -273,9 +273,11 @@ export const MapViewer: React.FC<MapViewerProps> = ({
       map.on('idle', handleIdle);
       map.on('error', () => {
         if (disposed) return;
-        clearTileLoadingTimeout();
-        clearMoveEndSettleTimer();
-        setIsTilesLoading(false);
+        if (map.areTilesLoaded()) {
+          clearTileLoadingTimeout();
+          clearMoveEndSettleTimer();
+          setIsTilesLoading(false);
+        }
       });
 
       renderFavoriteMarkers(map, latestFavoritesRef.current);

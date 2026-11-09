@@ -227,7 +227,8 @@ async function writeToPersistentCache(
   key: string,
   bytes: Uint8Array
 ): Promise<void> {
-  if (bytes.byteLength === 0) return;
+  // 1x1 ダミーPNGや空データは永続キャッシュ保存しない
+  if (bytes.byteLength <= 67) return;
   // メモリキャッシュは常に先行更新（iOSのストレージ書込み例外時もメモリヒットを保証）
   setMemoryCache(category, key, bytes);
 
@@ -362,9 +363,6 @@ export async function getTileWithOpfsSWR(options: {
   signal?: AbortSignal;
 }): Promise<ArrayBuffer> {
   const { category, key, fetcher, signal } = options;
-  if (signal?.aborted) {
-    throw new DOMException('Tile request aborted', 'AbortError');
-  }
   const compositeKey = `${category}:${key}`;
 
   const triggerBackgroundRevalidation = () => {
@@ -373,7 +371,7 @@ export async function getTileWithOpfsSWR(options: {
 
     fetcher()
       .then((freshBytes) => {
-        if (freshBytes && freshBytes.byteLength > 0) {
+        if (freshBytes && freshBytes.byteLength > 67) {
           return writeToPersistentCache(category, key, freshBytes);
         }
       })
@@ -394,15 +392,8 @@ export async function getTileWithOpfsSWR(options: {
     return cloneToTransferableBuffer(memHit.bytes);
   }
 
-  if (signal?.aborted) {
-    throw new DOMException('Tile request aborted', 'AbortError');
-  }
-
   // 2. L2 OPFS 永続キャッシュ確認（高速: < 1〜2ms）
   const diskHit = await readFromPersistentCache(category, key);
-  if (signal?.aborted) {
-    throw new DOMException('Tile request aborted', 'AbortError');
-  }
   if (diskHit && diskHit.bytes.byteLength > 0) {
     if (Date.now() - diskHit.updatedAt > REVALIDATE_INTERVAL_MS[category]) {
       triggerBackgroundRevalidation();
@@ -415,7 +406,7 @@ export async function getTileWithOpfsSWR(options: {
   if (!requestPromise) {
     requestPromise = fetcher(signal)
       .then((bytes) => {
-        if (bytes && bytes.byteLength > 0) {
+        if (bytes && bytes.byteLength > 67) {
           void writeToPersistentCache(category, key, bytes);
         }
         return bytes;
@@ -427,8 +418,5 @@ export async function getTileWithOpfsSWR(options: {
   }
 
   const fetchedBytes = await requestPromise;
-  if (signal?.aborted) {
-    throw new DOMException('Tile request aborted', 'AbortError');
-  }
   return cloneToTransferableBuffer(fetchedBytes);
 }

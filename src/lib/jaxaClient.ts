@@ -82,20 +82,33 @@ export async function getGSMaPImageCollection(): Promise<ImageCollection> {
  * AW3D30 (全球30m標高DSM) の TileGenerator を初期化して返します。
  */
 export async function getAW3DTileGenerator(tileSize = 256): Promise<TileGenerator> {
-  if (!aw3dTileGeneratorPromise) {
-    aw3dTileGeneratorPromise = (async () => {
-      const je = await getJaxaEarth();
-      const tg = new je.TileGenerator({
-        collectionUrl: AW3D30_COLLECTION_URL,
-        band: 'DSM',
-        tileSize,
-        // iOS Safari でドラッグ・パン中に setInterval がサスペンドしてタイル詰まりを起こすのを防ぐため 0ms（即時）に最適化
-        delay: 0,
-      });
-      await tg.init();
-      return tg;
-    })();
+  if (aw3dTileGeneratorPromise) {
+    try {
+      const tg = await aw3dTileGeneratorPromise;
+      if (tg) {
+        if ((tg as any).aborted) {
+          (tg as any).aborted = false;
+        }
+        return tg;
+      }
+    } catch {
+      aw3dTileGeneratorPromise = null;
+    }
   }
+
+  aw3dTileGeneratorPromise = (async () => {
+    const je = await getJaxaEarth();
+    const tg = new je.TileGenerator({
+      collectionUrl: AW3D30_COLLECTION_URL,
+      band: 'DSM',
+      tileSize,
+      // iOS Safari でドラッグ・パン中に setInterval がサスペンドしてタイル詰まりを起こすのを防ぐため 0ms（即時）に最適化
+      delay: 0,
+    });
+    await tg.init();
+    return tg;
+  })();
+
   return aw3dTileGeneratorPromise;
 }
 
