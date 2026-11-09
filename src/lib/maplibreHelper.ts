@@ -165,6 +165,9 @@ export function registerJaxaTerrainProtocol(tileSize = 256): void {
 
   // 1. 背景地図タイル (OSM / 国土地理院淡色 / Esri航空写真): OPFS Stale-While-Revalidate + 通信リトライ
   maplibregl.addProtocol('opfs-raster', async (params, abortController) => {
+    if (abortController.signal.aborted) {
+      throw new DOMException('Raster tile request aborted', 'AbortError');
+    }
     const parts = params.url.replace('opfs-raster://', '').split('/');
     const sourceId = (parts[0] as BaseMapId) || 'osm';
     const z = parseInt(parts[1], 10);
@@ -184,11 +187,18 @@ export function registerJaxaTerrainProtocol(tileSize = 256): void {
       signal: abortController.signal,
     });
 
+    if (abortController.signal.aborted) {
+      throw new DOMException('Raster tile request aborted', 'AbortError');
+    }
+
     return { data: buffer };
   });
 
   // 2. 3D標高DEMタイル (JAXA AW3D30): OPFS Stale-While-Revalidate
   maplibregl.addProtocol('jaxa-aw3d', async (params, abortController) => {
+    if (abortController.signal.aborted) {
+      throw new DOMException('Terrain tile request aborted', 'AbortError');
+    }
     const parts = params.url.replace('jaxa-aw3d://', '').split('/');
     const z = parseInt(parts[0], 10);
     const x = parseInt(parts[1], 10);
@@ -206,16 +216,36 @@ export function registerJaxaTerrainProtocol(tileSize = 256): void {
           }
           try {
             const tg = await getAW3DTileGenerator(tileSize);
+            if (sig?.aborted) {
+              throw new DOMException('Terrain tile request aborted', 'AbortError');
+            }
             const dataObject = await tg.getDataObject(x, y, z, sig);
+            if (sig?.aborted) {
+              throw new DOMException('Terrain tile request aborted', 'AbortError');
+            }
             if (!dataObject || !dataObject.data) {
               throw new Error('No land elevation data for tile');
             }
-            return await encodeTerrainRGBPng(dataObject.data, tileSize);
+            const png = await encodeTerrainRGBPng(dataObject.data, tileSize);
+            if (sig?.aborted) {
+              throw new DOMException('Terrain tile request aborted', 'AbortError');
+            }
+            return png;
           } catch (err) {
             lastError = err;
             if (sig?.aborted) throw err;
             if (attempt < 2) {
-              await new Promise((res) => setTimeout(res, 250 * (attempt + 1)));
+              await new Promise((res, rej) => {
+                const timer = setTimeout(res, 180 * (attempt + 1));
+                sig?.addEventListener(
+                  'abort',
+                  () => {
+                    clearTimeout(timer);
+                    rej(new DOMException('Terrain tile request aborted', 'AbortError'));
+                  },
+                  { once: true }
+                );
+              });
             }
           }
         }
@@ -223,6 +253,9 @@ export function registerJaxaTerrainProtocol(tileSize = 256): void {
       },
       signal: abortController.signal,
     });
+    if (abortController.signal.aborted) {
+      throw new DOMException('Terrain tile request aborted', 'AbortError');
+    }
     return { data: buffer };
   });
 }

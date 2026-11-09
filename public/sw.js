@@ -1,5 +1,5 @@
-const SHELL_CACHE = 'rain3d-shell-v8';
-const RUNTIME_CACHE = 'rain3d-runtime-v8';
+const SHELL_CACHE = 'rain3d-shell-v9';
+const RUNTIME_CACHE = 'rain3d-runtime-v9';
 const MAX_RUNTIME_ENTRIES = 800;
 
 const PRECACHE_URLS = [

@@ -362,6 +362,9 @@ export async function getTileWithOpfsSWR(options: {
   signal?: AbortSignal;
 }): Promise<ArrayBuffer> {
   const { category, key, fetcher, signal } = options;
+  if (signal?.aborted) {
+    throw new DOMException('Tile request aborted', 'AbortError');
+  }
   const compositeKey = `${category}:${key}`;
 
   const triggerBackgroundRevalidation = () => {
@@ -391,8 +394,15 @@ export async function getTileWithOpfsSWR(options: {
     return cloneToTransferableBuffer(memHit.bytes);
   }
 
+  if (signal?.aborted) {
+    throw new DOMException('Tile request aborted', 'AbortError');
+  }
+
   // 2. L2 OPFS 永続キャッシュ確認（高速: < 1〜2ms）
   const diskHit = await readFromPersistentCache(category, key);
+  if (signal?.aborted) {
+    throw new DOMException('Tile request aborted', 'AbortError');
+  }
   if (diskHit && diskHit.bytes.byteLength > 0) {
     if (Date.now() - diskHit.updatedAt > REVALIDATE_INTERVAL_MS[category]) {
       triggerBackgroundRevalidation();
@@ -417,5 +427,8 @@ export async function getTileWithOpfsSWR(options: {
   }
 
   const fetchedBytes = await requestPromise;
+  if (signal?.aborted) {
+    throw new DOMException('Tile request aborted', 'AbortError');
+  }
   return cloneToTransferableBuffer(fetchedBytes);
 }
