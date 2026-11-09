@@ -1,10 +1,8 @@
-const SHELL_CACHE = 'rain3d-shell-v5';
-const RUNTIME_CACHE = 'rain3d-runtime-v5';
+const SHELL_CACHE = 'rain3d-shell-v6';
+const RUNTIME_CACHE = 'rain3d-runtime-v6';
 const MAX_RUNTIME_ENTRIES = 800;
 
 const PRECACHE_URLS = [
-  '/',
-  '/index.html',
   '/manifest.webmanifest',
   '/icon-192.png',
   '/icon-512.png',
@@ -63,10 +61,10 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 1. ナビゲーションリクエスト (HTML): Network-First + オフライン時はキャッシュされた index.html へフォールバック
+  // 1. ナビゲーションリクエスト (HTML): HTTPキャッシュをバイパスして最新 index.html を取得 + オフライン時のみフォールバック
   if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request)
+      fetch(request, { cache: 'no-store' })
         .then((response) => {
           const clone = response.clone();
           caches.open(SHELL_CACHE).then((cache) => cache.put('/index.html', clone));

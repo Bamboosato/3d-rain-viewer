@@ -684,7 +684,7 @@ function classifyGsiTitle(title: string): { label: string; emoji: string; zoom: 
   if (/(山|岳|峰|嶺|富士|駒|槍|穂高|乗鞍|立山|白馬|八ヶ岳|アルプス)$/.test(title)) {
     return { label: '山岳', emoji: '⛰️', zoom: 12.2 };
   }
-  if (/(高原|湿原|渓谷|峡|滝|湖|沼|池|峠|岬|島|半島)$/.test(title)) {
+  if (/(高原|湿原|渓谷|峡|滝|湖|沼|池|峠|岬|島|半島|温泉)$/.test(title)) {
     return { label: '自然', emoji: '🌿', zoom: 12.6 };
   }
   if (/駅$/.test(title)) {
@@ -696,7 +696,7 @@ function classifyGsiTitle(title: string): { label: string; emoji: string; zoom: 
   if (/(市|区|町|村)$/.test(title)) {
     return { label: '自治体', emoji: '🗺️', zoom: 11.5 };
   }
-  return { label: '地名・スポット', emoji: '📍', zoom: 13.0 };
+  return { label: '地名', emoji: '🗺️', zoom: 13.0 };
 }
 
 function splitGsiTitle(rawTitle: string, query: string): { name: string; subLabel: string } {
@@ -711,14 +711,16 @@ function splitGsiTitle(rawTitle: string, query: string): { name: string; subLabe
     return { name: cleaned, subLabel: '都道府県' };
   }
 
-  // クエリ自体が末尾の施設名や山名に一致する場合は見出しを分かりやすく分離
-  const cityMatch = rest.match(/^(.+?[市区町村郡])(.+)$/);
+  // 市区町村（政令市の区や郡＋町村を含む）とそれ以降の町字・山名・施設名を分離
+  const cityMatch = rest.match(
+    /^((?:.+?市.+?区|.+?郡.+?[町村]|.+?[市区町村]))(.+)$/
+  );
   if (cityMatch) {
-    const cityPart = cityMatch[1];
+    const cityPart = cityMatch[1].trim();
     const detailPart = cityMatch[2].trim();
     if (detailPart) {
       return {
-        name: detailPart.length <= 2 ? `${cityPart}${detailPart}` : detailPart,
+        name: detailPart.length <= 1 ? `${cityPart}${detailPart}` : detailPart,
         subLabel: `${pref} ${cityPart}`,
       };
     }
