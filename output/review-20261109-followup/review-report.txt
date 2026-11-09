@@ -1,0 +1,158 @@
+3D Rain Viewer 追加修正後の再レビュー
+日付: 2026-11-09 JST
+対象: main、HEAD 710205415f3474a01bc497b28192a127df6fb221 と未コミット・未追跡変更を含む作業ツリー
+基準: docs/3d-rain-viewer-additional-fix-instructions-v1.0.md および元の修正指示書
+
+判定
+追加修正指示書への対応は未完了。前回の一部不具合は修正されているが、旧データの無警告欠落、保存先不一致、取り込み競合が残る。
+今回の既存単体43件、既存Chromium/WebKit計8件、型検査を含むbuildは成功。
+既存テストにない状態・境界を追加した14件では、要求を満たさない挙動を再現した。これは14個の独立したバグ数を意味しない。
+製品ソース・既存テスト・指示書は変更していない。このディレクトリにレビュー用テストと結果を追加した。
+
+検証観点
+機能: 正常保存と再起動／保存失敗／取り込みと通常操作の直列化。
+非機能: 期限・容量・共有キャンセル／停止Promiseからの回復／イベント更新。
+データ: 旧101件・旧60文字名／空の最新一覧／保存先の世代違い／不正日付。
+UI: 正常画像と地点値の一致／欠測・partial・失敗／初期取得中の選択・後着エラー。
+正常・異常・境界・状態遷移を区別し、APIモックと合成データで応答順序を固定。
+メモリキャッシュを明示的に初期化した再起動相当の確認、App本体、実FavoritesSyncDialogを使用。外部の実データは変更していない。
+
+F01【P0 致命】旧保存データの無警告欠落が残る（ADD-01）。
+対象: src/lib/favoritesStorage.ts:88-108,160-177,201、src/lib/favoritesTransfer.ts:83-87,163-177。
+上限の定数は100件/50文字へ統一されたが、読込はfilterAndValidateFavoritesで上限外の旧項目を除外し、除外件数をUIへ渡さない。
+101件を旧キーへseed→起動loader→先頭の名前だけ編集→通常保存で、101件目が永続ストレージから消える（S01）。
+旧60文字名と短い名前をseed→loader→短い方を編集保存でも、長い名前の項目が永続的に消える（S02）。
+JSON取り込みはsanitizeNameのsliceにより60文字を50文字へ無警告で短縮する（S05）。
+通常登録の101件目拒否と51文字拒否が通っても、旧形式互換と救済の条件は満たしていない。バックアップも読込後の一覧から作るため救済にならない。
+修正: 生の旧データを保護し、除外・制限超過状態と救済をUIへ返す。既存データを小さい上限へ切り捨ててから通常保存しない。全入口で検証・正規化結果を通知する。
+証拠: storage.test.ts S01/S02/S05。S01は単独実行でも再現。
+
+F02【P1 重大】IndexedDBだけに保存した編集・全削除が再起動で巻き戻る（ADD-02）。
+対象: src/App.tsx:97-103、src/lib/favoritesStorage.ts:318-320。
+非同期復元はidbFavs.length > 0かつ現在のstateが空のときだけ採用する。古いlocalStorageが非空の場合、最新のIndexedDB一覧を捨てる。
+また、最新版の空配列は正当な全削除状態だが、length > 0の条件で必ず無視される。
+旧一覧がlocalStorageに存在→IndexedDB commit成功、localStorage書込みQuota→保存success:true→メモリ破棄→App起動で、旧一覧を再表示する。
+全削除（A01）と非空の編集結果（A02）の両方で再現した。memoryFavoritesCacheを導入しても同一セッション内の見かけが直るだけで、再起動保証にはならない。
+さらにstateとfavoritesRefへ異なる一覧を入れる分岐があり、初期復元と通常操作の調停がない。
+修正: 正本・保存世代・移行完了を管理して空配列を含む最新確定状態を採用する。非同期起動復元を更新キューと調停する。
+証拠: app.test.ts A01/A02（実App、保存モジュール、IDB境界モック）。
+
+F03【P1 重大】取り込みとUndoの保存は更新キューの外にある（ADD-03）。
+対象: src/components/FavoritesSyncDialog.tsx:244-282、src/App.tsx:803-810。
+ダイアログはsaveFavoritesAndUndoAtomic/restoreFavoritesUndoを直接呼び、その完了後にonApplyFavoritesでstateの反映だけをキューへ入れる。
+通常保存が進行中→同期URL取り込み→取り込みの書込みが先に完了→通常保存が後に完了、の順序で、UIと永続データが不一致になる。
+実再現ではUIは old-A,new-B、永続データは edited-A のみとなった。取り込み成功表示にもかかわらずnew-Bが再起動で消える。
+設計メモの「追加・編集・削除・取り込み・Undoを直列実行」は現状と一致しない。
+修正: 取り込みのpreview再計算、最新一覧からのUndo作成、保存commit、state更新を同一キュー／トランザクション境界へ移す。Undoも同じ境界へ含める。
+証拠: import-race.test.ts D01。App・FavoritesSyncDialog・favoritesStorageは実コード。IDB open完了順だけ制御。単独と通しの両方で再現。
+
+F04【P1 重大】ロールバック失敗を無視し「ロールバックした」と報告する（ADD-02）。
+対象: src/lib/favoritesStorage.ts:420-452（通常保存の300-313にも同様の構造）。
+atomicキーの新版書込み後に互換キー書込みとロールバック書込みが継続して拒否された場合、新版が残るがAPIは失敗を返す。
+同一セッションのmemoryFavoritesCacheは旧版なので、従来のR05はこの相違を検出できない。メモリを破棄すると新版が返る（S03）。
+複数キーを順次更新してcatch内で元に戻すだけでは、永続障害に対する原子性を保証できない。
+修正: 単一レコードまたはtransactionを明確なcommit境界とし、互換ミラーの失敗を確定済み本体の失敗と混同しない。実際の状態に対応する結果を返す。
+追加: prevAtomic/prevStorageのgetItemがtryの外にあり、storage読出し拒否では成否契約でなくPromise rejectとなる（S04、通常保存:276）。
+証拠: storage.test.ts S03/S04。
+
+F05【P1 重大】GSMaP画像を採用した直後の地点値が旧フレームのまま（ADD-04）。
+対象: src/lib/jaxaClient.ts:317-327、src/App.tsx:402-407,487以降。
+setActiveRainLayerResultはgetJaxaEarth().then内でInspectorを生成する一方、Appは戻り直後にinspectLocationValuesを呼ぶ。
+既にSDK初期化済みでもthenは非同期のため、新画像のUI stateに旧Inspectorの値を保存する。Inspector更新だけではReact stateは再計算されない。
+1mm/hのフレームを採用済み→20mm/hのフレームを採用→直後の地点値が1mm/hになることを実関数で再現（J01）。
+修正: 表示採用に必要なInspectorを結果とともに準備するか、同じ世代で生成完了を待ち、画像・値・時刻を一括確定する。
+関連残存: App初期化のcatch(:437)は世代照合がなく、初期A失敗が選択済みBのloadingを解除する（A03）。MapViewer:440のmap未生成return、load listenerの旧結果保持も未修正。
+
+F06【P1 重大】部分欠落フレームが固定化される（ADD-05）。
+対象: src/App.tsx:265-270,283-290,462以降。
+status:partialも成功同様に保存し、再選択で無条件に返すため、不足部分を再取得しない。
+初期Aをpartialで返し、通信回復を想定してAを再選択しても、取得回数は1回のまま（A04）。
+missingTilesCount/statusのUI通知・明示的再試行経路もない。取得エラーはconsole.error中心。
+precipitation ?? 0のApp/MapViewer経路の除去は改善。しかしGSMaPの非有限統計→0/status:successとJMA未知ピクセル→0は残っている。
+修正: partialの期限／不足部分再取得を実装し、全失敗・部分失敗をUIへ接続する。
+
+F07【P1 重大】カタログの更新と日付検証が未完了（ADD-07）。
+対象: src/App.tsx:346-350、src/lib/jmaNowcastClient.ts:71-85,139、src/lib/jaxaClient.ts:241以降。
+Appはカタログを初回だけ取得しrefへ保持する。6分経過＋online＋visibilitychangeでも取得回数は1回のまま（A05）。5分更新、更新統合、手動再試行は未実装。
+isStale/savedAtをUIへ接続せず、GSMaPカタログの永続化・ImageCollection更新もない。
+新しい日時検証は12～14桁の数字判定だけ。20260231060000を受け入れ、Date.UTCの繰上げで2026-03-03の「最新実況」を生成する（S06）。13桁も通る。
+保存カタログのdate有効性、index範囲・フィルタ後のindex再計算、version検証も不足。
+修正: 実在日時と全構造を検証し、両ソースの保存/更新/復元と古さ表示を実装する。
+
+F08【P1 重大】通常編集・JSON取り込み中のSW更新でreloadする（ADD-08）。
+対象: src/main.tsx:26-41。
+controllerchangeの保留条件はhash/sessionStorageの同期ペイロードだけで、通常編集・保存中・JSON/貼付URL確認中の状態を参照しない。
+既にcontrollerがあるページで新SWが有効になると、これらの入力・確認状態を持ったままreloadへ進む。
+キャンセル/閉じる時のsessionStorage+hash消去は改善したが、更新適用の調停と安全な再適用は未実装。
+根拠は実コード読解。今回、本物のSW更新中の入力保護E2Eは未実施で、現行E2Eにもケースがない。
+
+F09【P1/P2】停止・容量・負荷制御の残存（ADD-09～12）。
+対象: src/lib/opfsTileCache.ts:99-123,262-293,336-337,491-535、src/lib/maplibreHelper.ts:206以降、src/App.tsx:239,278-281,418以降。
+OPFS初期化timeoutはnullに解決したPromiseを保持し続ける。1時間相当経過後も別キーの取得でgetDirectoryを再試行しない（S07）。write/closeの期限、遅延書込みの世代保護もない。
+容量制限は件数だけ。バイト会計、80MB/40MB、上限未満Quotaの強制整理、整理競合の調停は未実装。OPFS整理は60書込み周期で、SWも400件上限だけ。
+共有取得で1利用者cancelが他を止めない修正（R07）は確認。一方、完了時にabort listener/subscriberを解放せず、全員cancel時にもsettleするまでinFlight登録が残る。SDK側が停止しない場合の期限/回復はない。
+AW3D fetcherはsignalを使わず、JMAのApp呼出しもsignalなし。SDK init/getDataObjectの期限、Retry-After、キャンセル可能backoff、周辺地名の本文期限が未対応。
+フレームcacheはソース別10枚で、合計バイト予算・表示中保護・表示優先・背景化停止の実装がない。グリッド10枚だけで25MiBであり画像保持分は別。
+メモリ昇格時にupdatedAtを引き継ぐ修正は確認できた。
+
+F10【P1/P2】受入テストと設計メモが完了判定を支えない（ADD-13/14）。
+対象: e2e/browser_core.spec.ts、tests/regression_review_add01_14.test.ts、docs/design_cache_and_lifecycle_notes.md。
+前回の14再現を実コードへ接続した正式テスト追加とtrace:retain-on-failureへの変更は改善。
+ただしR01/R02/R05/R06のloaderは同一セッションのmemoryFavoritesCacheを読めるため、保存・ロールバック・再起動の保証になっていない。
+既存の複写ロジックテスト、T11の関数存在だけ、T04の停止未注入、T36の実transfer/キャッシュヒット未確認等も残る。
+E2EはlocalhostのSW解除・全cache削除が有効なまま。case2は実SW更新でなくテスト自身がfilterで削除する。case1は直接localStorage seed後のキー確認、case3は空payloadの保留確認のみ。
+case4はInspectorの欠測表示を確認するよう改善したが、正常0mm/hとの比較、固定画像fixture、全失敗/部分回復はない。
+オフライン画像復元、実SW更新、入力保護、保存失敗、応答逆転を両ブラウザで検証する受入ケースは不足。
+設計メモにある5分更新、80MB/40MB、合計25MiB、shell100件は実装にない。SW300件/Network-Firstという説明も実装の400件/キャッシュ先返却と不一致。
+「完全ロールバック」「取り込み・Undoの直列実行」もF03/F04と矛盾する。診断イベント/StorageStateは型定義中心のまま。
+
+ADD別状況
+ADD-01: 部分修正。新規入力上限拒否は改善、旧データ無警告欠落は未解消（P0）。
+ADD-02: 部分修正。通常成功時のatomic更新は改善、保存先不一致/継続障害/起動復元は未解消。
+ADD-03: 部分修正。通常追加/編集/削除のキューと保存失敗UIは改善、取り込み/Undoはキュー外。
+ADD-04: 部分修正。R11～13の単純採用ケースは成功、GSMaP Inspector/初期エラー/地図準備経路が残る。
+ADD-05: 部分修正。null保持は改善、partial回復・失敗通知・データ解釈は未完了。
+ADD-06: 主な修正を確認。SW open/put例外分離と非同期保存は改善。waitUntil詳細検証・本物のSW更新E2E等は不足。
+ADD-07: 部分修正。空時刻拒否は改善、更新・実在日時・GSMaP永続化・古さ表示が残る。
+ADD-08: 部分修正。hashを含む保留消去は改善、編集/保存とSW更新の調停が残る。
+ADD-09: 部分修正。updatedAt維持は改善、初期化回復・write停止・遅延世代管理が残る。
+ADD-10: 要求されたバイト予算とQuota回復は未実装。
+ADD-11: 部分修正。1購読者cancelは改善、期限・終了時解放・SDK/背景処理への伝播等が残る。
+ADD-12: 合計バイト予算・表示優先・背景停止は未実装。
+ADD-13: 部分修正。14正式テストとtrace設定は改善、T01～38の要求結果と本番相当E2Eは不足。
+ADD-14: 設計メモは更新されたが実装との不一致が残り、診断の実接続も不足。
+
+今回の追加再現テスト
+storage.test.ts S01: 旧101件の末尾が編集保存で消える。
+storage.test.ts S02: 旧60文字名が別項目編集で消える。
+storage.test.ts S03: rollback失敗で新版が残るが失敗報告。
+storage.test.ts S04: getItem例外で成否契約からrejectが漏れる。
+storage.test.ts S05: JSONの旧60文字名が無警告で50文字化。
+storage.test.ts S06: 2月31日を3月3日として採用。
+storage.test.ts S07: OPFS初期化timeout後、1時間経過しても再初期化なし。
+app.test.ts A01: IDBのみ全削除成功が再起動で旧一覧へ戻る。
+app.test.ts A02: IDBのみ編集成功が再起動で旧一覧へ戻る。
+app.test.ts A03: 初期要求失敗が最新選択のloadingを解除。
+app.test.ts A04: partial再選択で取得回数が増えない。
+app.test.ts A05: 6分経過/online/前面イベントでもカタログ更新なし。
+jaxa.test.ts J01: 新GSMaP画像採用直後の地点値が旧値。
+import-race.test.ts D01: 取り込みと通常保存が競合してUIと永続内容が不一致。
+全14件を通し実行し期待結果との差を確認。S01とD01は単独でも同じ不具合を確認。その他全件の個別実行はしていない。
+D01の最初の試作では圧縮payloadの非同期待機が不十分だったため、非圧縮の有効fixtureへ変更した。最終results.jsonは利用者挙動のassertで不一致を検出した結果。
+
+実行結果と範囲
+npm test: 6 files / 43 passed（Vitest 5.1.0）
+npm run build: tsc -b + Vite 6.4.5成功。大きいchunkの既存警告あり。
+npm run test:e2e: Chromium 4 passed + WebKit 4 passed、workers:1。
+  ローカルpreview/ブラウザ起動を許可された環境で実行。対象は既存の4ケースのみ。
+  理由: 修正範囲の既存回帰確認。全機能E2E・実機評価ではない。
+npx vitest run --config output/review-20261109-followup/vitest.config.mjs --reporter=json --outputFile=output/review-20261109-followup/results.json
+  4 files / 14 failed。要求違反を確認するレビュー専用テストで、既存npm testの対象外。
+npx vitest run --config output/review-20261109-followup/vitest.config.mjs -t 'S01 ' --reporter=json --outputFile=output/review-20261109-followup/isolated-S01.json
+  対象1件失敗、その他skip。
+npx vitest run --config output/review-20261109-followup/vitest.config.mjs -t 'D01 ' --reporter=verbose --reporter=json --outputFile=output/review-20261109-followup/isolated-D01.json
+  対象1件失敗、その他skip。
+
+未実施: 本番相当の追加SW更新/オフライン復元E2E、実端末/OSメモリ圧迫、実サービス全面検証、任意のSW強制終了、全Tケースの再実装。
+UI/保存不整合は実装問題、既存テストでの見逃しは主に再起動・旧データ・保存先障害・応答順序のテスト観点不足。
+実機問題や環境制約が今回の未完了判定の理由ではない。

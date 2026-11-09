@@ -1,3 +1,4 @@
+import { bounded, abortableDelay } from './asyncLifecycle';
 import maplibregl from 'maplibre-gl';
 import type { BaseMapId, PresetLocation, RendererBackend, WebGPUStatus } from '../types/map';
 import { getAW3DTileGenerator, getJaxaEarth } from './jaxaClient';
@@ -164,7 +165,9 @@ export function registerJaxaTerrainProtocol(tileSize = 256): void {
   protocolRegistered = true;
 
   // 1. 背景地図タイル (OSM / 国土地理院淡色 / Esri航空写真): OPFS Stale-While-Revalidate + 通信リトライ
-  maplibregl.addProtocol('opfs-raster', async (params) => {
+  maplibregl.addProtocol('opfs-raster', async (params, abortController) => {
+    const signal = abortController?.signal;
+    if (signal?.aborted) throw new Error('Aborted');
     const parts = params.url.replace('opfs-raster://', '').split('/');
     const sourceId = (parts[0] as BaseMapId) || 'osm';
     const z = parseInt(parts[1], 10);
@@ -180,14 +183,17 @@ export function registerJaxaTerrainProtocol(tileSize = 256): void {
     const buffer = await getTileWithOpfsSWR({
       category: 'raster',
       key: `${sourceId}_${z}_${x}_${y}`,
-      fetcher: () => fetchTileBytesWithRetry(upstreamUrl),
+      fetcher: (sig) => fetchTileBytesWithRetry(upstreamUrl, sig || signal),
+      signal,
     });
 
     return { data: buffer };
   });
 
   // 2. 3D標高DEMタイル (JAXA AW3D30): OPFS Stale-While-Revalidate
-  maplibregl.addProtocol('jaxa-aw3d', async (params) => {
+  maplibregl.addProtocol('jaxa-aw3d', async (params, abortController) => {
+    const signal = abortController?.signal;
+    if (signal?.aborted) throw new Error('Aborted');
     const parts = params.url.replace('jaxa-aw3d://', '').split('/');
     const z = parseInt(parts[0], 10);
     const x = parseInt(parts[1], 10);
@@ -196,23 +202,24 @@ export function registerJaxaTerrainProtocol(tileSize = 256): void {
     // 過去バージョンで0m平坦タイルとしてキャッシュされてしまった残骸を無効化するためキーを v2 に更新
     const buffer = await getTileWithOpfsSWR({
       category: 'terrain',
-      key: `aw3d_v2_${tileSize}_${z}_${x}_${y}`,
-      fetcher: async () => {
+      key: `aw3d_v3.2_rgb-v3_${tileSize}_${z}_${x}_${y}`,
+      signal,
+      fetcher: async (requestSignal) => {
         let lastError: unknown = null;
         for (let attempt = 0; attempt <= 2; attempt++) {
           try {
             const tg = await getAW3DTileGenerator(tileSize);
-            (tg as any).aborted = false;
-            const dataObject = await tg.getDataObject(x, y, z);
+            const dataObject = await bounded(tg.getDataObject(x, y, z, requestSignal), 15000, requestSignal);
             if (!dataObject || !dataObject.data) {
               throw new Error('No land elevation data for tile');
             }
             const png = await encodeTerrainRGBPng(dataObject.data, tileSize);
             return png;
           } catch (err) {
+            if (requestSignal?.aborted) throw err;
             lastError = err;
             if (attempt < 2) {
-              await new Promise((res) => setTimeout(res, 180 * (attempt + 1)));
+              await abortableDelay(180 * (attempt + 1), requestSignal);
             }
           }
         }

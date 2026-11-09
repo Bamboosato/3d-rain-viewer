@@ -1,0 +1,201 @@
+3D Rain Viewer 作業指示書への実装対応レビュー
+確認日: 2026-11-09 JST
+対象: C:/work_codex/3d_rain_viewer
+ブランチ: main
+HEAD: 710205415f3474a01bc497b28192a127df6fb221
+対象実装: 上記HEADに対する既存の未コミット変更・未追跡ファイルを含む作業ツリー。
+基準: docs/3d-rain-viewer-developer-fix-instructions-v1.0.md
+参考: docs/design_cache_and_lifecycle_notes.md（実装担当者の設計メモ。実装済みの証明とは扱わない）
+
+結論
+指示書の完了条件は満たしていない。無警告の保存データ欠落と、最新選択に対する旧結果の上書きを含む重要問題が残る。
+既存テストの合格と実装完成を区別する必要がある。ソース修正は行っていない。
+output/review-20261109/ にレビュー専用の再現テスト・結果を追加した。既存テスト設定の対象外。
+ビルドがdistを、既存E2Eがtest-resultsを生成した。
+
+検証観点（追加再現テスト作成前に整理）
+機能: 正常=保存と再読込 / 異常=保存先拒否 / 境界=全件・部分・全失敗 / 遷移=取り込み→通常更新→Undo。
+非機能: 正常=取得統合 / 異常=ストレージ拒否・停止 / 境界=容量・保持バイト数 / 遷移=1購読者キャンセル→他購読者継続。
+データ: 正常=同じ保存内容を復元 / 異常=不正日時 / 境界=100/101件・50/51文字 / 遷移=旧保存→新保存・保存先切替。
+UI: 正常=画像と地点値の一致 / 異常=欠測と保存失敗 / 境界=初期化中操作 / 遷移=A→B選択・ソース切替・応答逆転。
+前提: 合成データ、各ケースでstorage初期化。サービス/SDK/地図は決定的モック。App本体とstorage本体、SW実ソースを呼ぶ。
+追加テストの失敗は指示書で求める挙動と実装との差を示す。実端末の障害頻度・OSメモリ問題の再現とは扱わない。
+
+重要指摘（行番号は確認時点）
+
+F01【致命】保存の検証規則不一致が重要データを無警告で欠落させる（FIX-03/14）。
+  favoritesStorage.ts:5-6 は100件/50文字、favoritesTransfer.ts:18-25 は500件/60文字。
+  favoritesStorage.ts:195,251 の保存APIは rejectedCount を無視し、切り捨て後の保存をsuccess:trueにする。
+  App.tsx:690付近は新規地点を先頭へ追加するため、100件の状態で101件目を登録すると既存の末尾1件が消える。
+  51文字の名前は保存結果success:trueでも保存件数0となる。
+  取り込み確認と成功表示は保存前のpreview.nextを使用するため、101～500件や51～60文字の入力で表示と永続内容が不一致。
+  旧データ/Undoにも同じフィルタが適用され、起動時に除外件数を表示しない。破損・読込失敗とデータなしも区別されない。
+  再現: R03/R04。対策: 全入口の検証と上限を共通化し、保存層は無警告に削除せず拒否または明示確認。保存確定結果をUIへ返す。
+
+F02【重大】取り込み後の編集・削除・Undoが再起動で巻き戻る（FIX-03）。
+  favoritesStorage.ts:135 はatomicキーを優先。通常保存(:222)は従来キーのみ更新する。
+  clearFavoritesUndoSnapshot(:393-397)もatomic.favoritesは更新せずundoだけ削除する。
+  再現: 取り込み→編集→loadFavoriteLocationsで取り込み直後のデータを返す(R01)。Undo成功後も取り込み後データを返す(R02)。
+  さらにApp.tsx:75は同期localStorage読込だけを使用。IndexedDBへの保存だけ成功した場合、再起動時にそのデータを読まない(R06)。
+  対策: 正本を一つにし、current/undoの読書きと起動時復元・移行を同じ契約に統一。
+
+F03【重大】原子的更新が失敗と返っても実際には内容が変わる（FIX-03）。
+  favoritesStorage.ts:288でatomicキーを書き込み後、互換キーの書き込みが失敗するとロールバックした旨で失敗を返す。
+  実際にはatomicキーが新状態となっており、起動時は新データが読まれる(R05)。
+  IndexedDB成功/localStorage失敗、またはその逆でも保存先間の世代不一致を解決する仕組みがない。
+  対策: 明確なコミット地点と単一の成功契約。互換ミラー失敗をコミット失敗と混同しない。
+
+F04【重大】通常操作にも古い一覧による上書きが残る（FIX-03）。
+  App.tsx:670-710 の保存コールバックはfavoritesを参照するが依存配列に含めていない。
+  Aを選択→別のお気に入りBを削除→Aを保存すると、削除したBが復活する(R14、単独実行でも再現)。
+  通常更新/取り込み/Undoを直列化する仕組みもない。依存配列だけの修正では同時操作の古いスナップショット問題は残る。
+  App.tsx:706は保存失敗をconsoleだけへ出し、Inspector.tsx:245-246は保存完了を待たず編集を閉じる。
+  対策: 最新状態を使った更新を保存層で直列化し、UIへPromiseと成功/失敗を返して入力・再試行を維持。
+
+F05【重大】表示要求世代が初期化とソース切替に適用されていない（FIX-05）。
+  App.tsx:354-357の初期取得はmountedだけで採用され、ユーザーがBへ移動した後でも遅れた初期Aが表示を上書き(R12)。
+  ソース変更(:550、URL経由:954)はactiveRequestIdを更新しない。旧JMAの選択要求が新GSMaPを上書き(R13)。
+  初期取得後にsetActiveRainLayerResultを呼んでおらず、初期画像と地点値が一致しない(R11)。
+  jaxaClient.ts:325の非同期Inspector生成は直後のinspectLocationValuesに間に合わず、旧Inspectorを読む経路が残る。
+  MapViewer.tsx:440はmap未生成ならreturnするが、map生成はref変更だけで再適用を誘発しない。load待ちハンドラーの解除もない。
+  対策: 初期化/通常選択/URL/ソース変更を一つの採用処理へ集約。画像・時刻・値・状態を同じ結果で確定する。
+
+F06【重大】欠測→0、部分欠落の固定化、取得失敗の通知不足（FIX-02）。
+  App.tsx:366,612,617,898,980,989、MapViewer.tsx:369,382に precipitation ?? 0 が残る。
+  Inspector単体でnullに対応しても、これらからは0が渡る。初期共有地点もApp.tsx:125で0。
+  App.tsx:239はpartialを正常同様にキャッシュし、:221-226で無条件再利用する。不足タイルを再取得する経路がない。
+  フレーム/カタログ取得エラーはconsoleのみ。partial/missingTilesCount/isStale/savedAtは表示に接続されていない。
+  jmaNowcastClient.ts:458付近は未認識の不透明ピクセルも初期値0のまま。画像サイズ/形式の検証もない。
+  jaxaClient.ts:305-309は非有限統計を0へ変換しstatus:successとする。
+  全20タイル失敗をthrowすること、3×3全欠測をnullにすること、canvas null拒否は改善されている。
+
+F07【重大】SWのストレージ障害が天気画像取得を止める（FIX-07/09）。
+  public/sw.js:145-146のcaches.open/cache.matchは保護されず、例外でネットワークへ進まない(R08)。
+  :152のcache.put失敗がfetch失敗と同じcatchへ入り、成功したHTTP 200をResponse.errorへ置き換える(R09)。
+  ネットワーク応答返却が永続保存完了を待つため、保存停止でも影響を受ける。
+  HTML/assetsの保存waitUntil登録、HTTP 200保存ガード、fallbackなしの明示応答は改善。ただし気象ミス経路は応答と保存の分離が不十分。
+
+F08【重大】カタログの保存だけでは鮮度管理は完成していない（FIX-08）。
+  App.tsx:298付近のカタログ取得はsourceの初回のみ。5分更新・前面復帰・online・手動再試行・同時更新統合がない。
+  JMAにはlocalStorage保存/復元とN1独立利用があるが、保存時刻/古さ/部分障害のUI通知がない。
+  TimelineBar.tsx:56は保存済み最新実況も「現在」と判定する。
+  GSMaPはカタログ永続化もImageCollection更新もない。
+  jmaNowcastClient.ts:71は空文字時刻をnew Dateへ補完。:172の検証が文字列型のみのため、空文字から架空の「最新実況」を作る(R10)。
+  保存済みframesも各項目やdefaultIndexの範囲・形式versionを検証していない。
+
+F09【重大】SW更新と取り込み/編集中の保護が部分的（FIX-06）。
+  main.tsx:26以降は初回controllerchangeとsessionStorage上の同期URL待ちだけを保護する。
+  JSON取り込み、貼付URL取り込み、通常編集・保存中を判定せず、新controllerでreloadする。
+  FavoritesSyncDialog.tsx:431のキャンセルとApp.tsx:744付近の閉じる操作は保留sessionStorageを消さず、次回起動で再提示される。
+  favoritesTransfer.ts:606のclear関数はhashを消さない。sessionStorage拒否でhashを残した場合、確定後も再取り込み候補が残る。
+  hasPendingFavoritesPayloadはhashを見ない。skipWaiting/claimとHTML/JS世代を安全に切り替える一貫した方式も未検証。
+
+F10【重大】容量・期限・キャンセル・負荷制御が指示書に不足（FIX-07/10/11/12/13）。
+  opfsTileCache.ts:25の制限は件数のみ。80MB/40MBに対応するバイト計測・削除は存在しない。
+  Quota時の整理も件数上限を超えていなければ削除しないため、上限未満での容量不足から回復しない。
+  OPFS整理は60書込みごとで、上限直後にも超過が残る。バックグラウンド整理の競合抑止もない。
+  public/sw.jsのruntimeも400件のみでバイト予算/Quota回復なし。設計上のshell最大100件も未実装。
+  OPFSの初期化/readに有限待機はあるが、nullへ解決したPromiseが残り再初期化されない経路がある。
+  writable.write/close(:320-321)は無期限。処理世代/遅延書込みの無効化はなく、能力確認前にcreate:trueでファイル生成する。
+  永続データの比較自体はあるが、メモリ昇格(:215→:136)でupdatedAtをDate.nowにし、古いコピーを新鮮と扱う。
+  getTileWithOpfsSWR(:473)の共有取得に先頭利用者のsignalを使うので、1人のcancelで他利用者も失敗する(R07)。
+  JMAは全20画像を即時並列取得。Appはsignalを渡さず、ソース変更/背景化でも進行中の取得を止めない。
+  AW3D fetcherはsignalを無視し、SDKのgetDataObject、GSMaP init/getImage/getDataObjectにも回復可能な期限/並列制限がない。
+  周辺地名取得も直接fetch経路にクライアント期限がない。検索用fetchWithTimeoutはヘッダー受信でtimer解除し本文まで保護しない。
+  HTTP 429 Retry-After尊重やcancel可能なbackoffはない。
+  App.tsx:195はソースごとの10枚制限で、合計25MiBのバイト計測ではない。JMAグリッド10枚だけで25MiB、画像文字列等は別途保持。
+  表示中保護、前面要求優先スケジューラ、背景化での先読み停止もない。キャッシュ即時選択(:414付近)はLRU参照順を更新しない。
+
+FIX別の判定
+01: 主修正は実装。SWの所有prefix限定削除、背景タイルSW透過あり。本物の更新E2Eによる受入確認はない。
+02: 部分対応。全失敗/欠測マスク改善。ただしF06の誤表示・部分結果回復・形式検証が残る。
+03: 未完了。F01～F04。IndexedDB移行/正本/直列化/失敗通知を含め再設計が必要。
+04: 部分対応。App finallyとGSMaP/AW3Dのreject時リセットはある。停止Promiseや429/backoff等は不足。
+05: 未完了。F05。App実行で初期化とソース変更の逆転を再現。
+06: 部分対応。初回制御開始のreload抑止・同期hash退避はあるが、F09が残る。
+07: 部分対応。TileCacheの読み出し例外/有限待機は改善。SW経路・停止書込み・回復/状態表示に不足。
+08: 部分対応。JMA保存/N1主経路は改善。更新・表示・GSMaP・構造検証が不足。
+09: 部分対応。HTML/assetsはwaitUntil等改善。気象経路の保存失敗が正常応答を破壊。
+10: 部分対応。代替先件数整理は追加。バイト上限・上限未満のQuota回復・整理競合が未対応。
+11: 部分対応。OPFS/代替コピー日時比較は追加。メモリ昇格時刻・遅延操作世代が未対応。
+12: 部分対応。abort済み/背景ラスタ通信のsignal・本文取得期限、JMA Image期限、CDN import期限は追加。F10の残り多数。
+13: 部分対応。全件先読みを前後2枚へ縮小。合計バイト予算/表示優先/背景停止が未対応。
+14: 未完了。storage getter保護・座標検証は改善。しかし上限/名前/日付/ID等の規則非共通化と無警告除外が残る。
+
+設計メモとの差異
+設計メモ:12の80MB/40MB、:14の合計25MiB予算、:13の5分更新/GSMaPカタログ保存、:64の起動時IndexedDB移行と移行済みマークは実装に見当たらない。
+shell100件上限も未実装。キー例も実装と不一致（GSMaP実キーは日時/v1のみでcollection/bounds/resolutionがない）。
+src/types/status.tsは型定義が中心で、StorageState、RequestState、AppDiagnosticEvent/DiagnosticLoggerを使う運用処理がない。
+指示書8のbuild/version、分類、保存先、memory-only、件数/バイト数/所要時間等の診断出力は未整備。
+メモには実装済み/予定/未対応を区別し、実値と実装箇所・検証結果を記載することを推奨する。
+指示書9のT01～T38対応表、FIXごとの検証/残存事項、版付き実行結果、未実施範囲を含む変更説明もdocsには見当たらない。
+
+既存テストの評価
+npm testは4ファイル29件合格。ただし次は実装完了の根拠にならない。
+- T01: SWを実行せず削除filterをテスト内に複写。
+- T04: OPFSを未完了にせずfake clockも進めていない。
+- T05/T31: テスト内の2数値比較だけで、実ストレージ読出し/世代競合/メモリ昇格を検証しない。
+- T07/T08: 作成済みgridを読むだけで、実画像の部分取得→不足再取得を検証しない。
+- T11: typeof getGSMaPImageCollection === 'function'だけ。初期失敗/再初期化を起こさない。
+- T13/T14: Appを呼ばずテスト内独自のrequestId実装を確認するだけ。
+- T16: if (!res.success)内だけassertするため、誤った成功結果でも合格する。
+- T17/T18: transaction途中失敗/Undo復元失敗の注入がなく、復元後に起動用loaderで一覧を読まない。
+- T20/T21: controllerchangeも更新/編集中の実経路も実行しない。
+- T23: 関数レベルの保存/復元は確認するが再起動UI・保存時刻/古さを検証しない。
+- T28: Response.status比較だけでSWにイベントを渡さない。
+- T36: 実transferしない。入力が4bytesでwriteToPersistentCacheの67bytesガードによりキャッシュ登録されず、2回目ヒットも証明できない。
+- T38: 件数の一つの上限超過だけ。圧縮後展開サイズ/ファイルサイズの境界はない。
+- T02/T09/T10/T12/T15/T19/T26/T27/T29/T30/T33/T34/T37の要求挙動を満たす実テストが見当たらない。describeタイトルのID列挙はカバレッジではない。
+
+既存E2Eの評価
+Chromium4件/WebKit4件、計8件合格（workers:1）。選定範囲は既存の重要経路ケースのみ。全機能E2Eではない。
+ただしlocalhostではmain.tsxがSW解除/全cache削除、sw.jsがlocalリクエストを透過させる。指示書が求める本番相当SW経路を有効化する構成がない。
+case1: localStorageへテストが直接書き、再読込後も同じキーが残ることだけを確認。保存UI/IndexedDB/復元UIを未確認。
+case2: テストがcache削除ロジックを直接実行。実SWの登録/旧→新更新/activateを確認しない。
+case3: sessionStorageに値があることだけ。入力は空配列のpayloadで、有効な取り込み確認待ちやcontrollerchange/reloadは検証しない。
+case4: Inspector非表示だけを確認。欠測と0の表示を一度も比較しない。
+オフラインでカタログ+画像復元、取り込み/保存失敗のUI、応答逆転のブラウザ検証は未実施。
+JMAの3カタログ以外の外部API/画像は固定fixtureで全面隔離されていない。
+trace:'on-first-retry'とretries:0の組合せは失敗時traceを残せない。retain-on-failure等へ見直すことを推奨。
+
+追加再現結果
+14件すべてが「要求される正しい挙動」のassertに失敗。各テスト名に意図とFIX-IDを記載。
+R01 取り込み後の通常編集が起動時に巻き戻る。
+R02 Undo成功後の起動時内容が取り込み後のまま。
+R03 101件目保存success:true、既存の末尾1件が消失。
+R04 51文字の名前はsuccess:true、保存件数0。
+R05 rollback/失敗と報告しても新一覧が読まれる。
+R06 IndexedDBのみ保存成功しても起動時一覧は空。
+R07 共有取得の先頭利用者のcancelで他利用者もreject。
+R08 実SWのcache.open拒否がそのまま応答失敗。
+R09 実SWのcache.put拒否でHTTP200がResponse.error(status0)へ置換。
+R10 空文字basetime/validtimeから現在時刻のフレーム生成。
+R11 初期画像採用時のactive Inspector更新なし。
+R12 初期A→選択B、B→A応答でAへ巻き戻る。
+R13 JMA選択→GSMaP切替後の旧JMA応答でJMAへ巻き戻る。
+R14 B削除後にAを保存するとBが復活。
+R01とR14は各々単独実行でも同じ失敗を再確認。全14件を個別実行したわけではない。
+
+実行コマンド/結果
+node --version: v24.22.1 / npm --version: 11.19.1
+npm test: Vitest 5.1.0 / 29 passed
+npm run build: tsc -b && vite build 成功（Vite 6.4.5）。500kB超chunk警告あり。
+npm run test:e2e: Playwright 1.65.0 / Chromium 4 passed, WebKit 4 passed / workers:1
+  通常sandboxではpreview起動を完了できず、ローカル接続不能のため中止。許可された昇格実行で8件完了。
+  バージョンはplaywright-core/browsers.json上でChromium/headless-shell 158.0.8127.18 rev1254、WebKit 27.2 rev2388。
+  特定iOS/Safari実機版の保証ではない。
+npx vitest run --config output/review-20261109/vitest.config.mjs --reporter=json --outputFile=output/review-20261109/results.json
+  14 failed（要求違反を再現）
+npx vitest run --config output/review-20261109/vitest.config.mjs -t 'R01 ' --reporter=json --outputFile=output/review-20261109/isolated-R01.json
+  対象1件失敗、その他skip
+npx vitest run --config output/review-20261109/vitest.config.mjs -t 'R14 ' --reporter=json --outputFile=output/review-20261109/isolated-R14.json
+  対象1件失敗、その他skip
+
+原因分類と次の対応
+再現したF01～F05/F07/F08/F10の指摘は実装問題。既存テストで見逃す原因はテスト観点不足（実経路不使用、失敗注入不足、再起動/通し状態未確認）。
+不正データfixtureは防御処理の確認用で、利用者データに同じ問題が起きたと主張するものではない。
+最初のE2E起動停止は環境問題で、昇格実行後に解消。実装問題と混同しない。
+推奨順序は、無警告欠落/正本/原子性→App採用世代と欠測表示→SWストレージ分離→更新/容量/キャンセル/先読み→本番相当の対象E2E。
+実装内部のロジック複写テストを実コードを通すテストへ置換し、T01～T38は期待結果単位で対応付ける。
+未実施: 指示書全Tケースの新規構築、本物のSW更新/オフライン復元の追加E2E、実サービス全面検証、スマートフォン/実端末、OSメモリ圧迫、任意のSW強制終了。
+実機確認は指示書上も依頼者側の範囲であり、今回の未完了判定の理由は上記の実装/自動検証不足。

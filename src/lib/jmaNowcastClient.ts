@@ -1,28 +1,34 @@
-import type { TimelineFrameItem } from '../types/map';
 import type { GSMaPRainLayerResult } from './jaxaClient';
+import type { TimelineFrameItem } from '../types/map';
+import type { DataState } from '../types/status';
+import { safeGetLocalStorage } from './favoritesStorage';
 
-const JMA_NOWCAST_N1_URL =
+export const JMA_NOWCAST_N1_URL =
   'https://www.jma.go.jp/bosai/jmatile/data/nowc/targetTimes_N1.json';
-const JMA_NOWCAST_N2_URL =
+export const JMA_NOWCAST_N2_URL =
   'https://www.jma.go.jp/bosai/jmatile/data/nowc/targetTimes_N2.json';
-const JMA_RASRF_URL =
+export const JMA_RASRF_URL =
   'https://www.jma.go.jp/bosai/jmatile/data/rasrf/targetTimes.json';
 
-/**
- * 気象庁 高解像度降水ナウキャスト (hrpns) & 今後の雨・降水短時間予報 (rasrf) タイル合成グリッド定義 (z=6)
- * x: 54..57 (4タイル), y: 23..26 (4タイル) -> 計16タイルで日本列島全域 (沖縄〜北海道) をカバー
- */
-const JMA_TILE_Z = 6;
-const JMA_X_MIN = 54;
-const JMA_X_MAX = 57;
-const JMA_Y_MIN = 22;
-const JMA_Y_MAX = 26;
-const JMA_TILES_X = JMA_X_MAX - JMA_X_MIN + 1; // 4
-const JMA_TILES_Y = JMA_Y_MAX - JMA_Y_MIN + 1; // 4
-const JMA_CANVAS_WIDTH = JMA_TILES_X * 256; // 1024
-const JMA_CANVAS_HEIGHT = JMA_TILES_Y * 256; // 1024
+const JMA_CATALOG_STORAGE_KEY = 'rain3d_jma_catalog_v1';
 
-function tile2lon(x: number, z: number): number {
+// 日本列島全域をカバーするズームレベル6のタイル範囲
+export const JMA_TILE_Z = 6;
+export const JMA_X_MIN = 54;
+export const JMA_X_MAX = 57; // 4 tiles (54, 55, 56, 57)
+export const JMA_Y_MIN = 22;
+export const JMA_Y_MAX = 26; // 5 tiles (22, 23, 24, 25, 26)
+export const JMA_TILES_X = JMA_X_MAX - JMA_X_MIN + 1; // 4
+export const JMA_TILES_Y = JMA_Y_MAX - JMA_Y_MIN + 1; // 5
+export const JMA_TOTAL_TILES = JMA_TILES_X * JMA_TILES_Y; // 20 tiles
+
+const JMA_CANVAS_WIDTH = JMA_TILES_X * 256; // 1024
+const JMA_CANVAS_HEIGHT = JMA_TILES_Y * 256; // 1280
+
+/** 欠測ピクセルを表すグリッド値 (FIX-02) */
+export const JMA_MISSING_VALUE = 0xffff; // 65535
+
+function tile2lng(x: number, z: number): number {
   return (x / Math.pow(2, z)) * 360 - 180;
 }
 
@@ -31,17 +37,17 @@ function tile2lat(y: number, z: number): number {
   return (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
 }
 
-export const JMA_NOWCAST_WEST = tile2lon(JMA_X_MIN, JMA_TILE_Z); // 123.75
-export const JMA_NOWCAST_EAST = tile2lon(JMA_X_MAX + 1, JMA_TILE_Z); // 146.25
+// 日本列島カバー領域のバウンディングボックス
+export const JMA_NOWCAST_WEST = tile2lng(JMA_X_MIN, JMA_TILE_Z); // 121.875
+export const JMA_NOWCAST_EAST = tile2lng(JMA_X_MAX + 1, JMA_TILE_Z); // 149.0625
 export const JMA_NOWCAST_NORTH = tile2lat(JMA_Y_MIN, JMA_TILE_Z); // 45.08903556
 export const JMA_NOWCAST_SOUTH = tile2lat(JMA_Y_MAX + 1, JMA_TILE_Z); // 27.05912578
 
-/** MapLibre ImageSource 用の正確な Web Mercator 4隅座標 */
 export const JMA_NOWCAST_COORDINATES: [
   [number, number],
   [number, number],
   [number, number],
-  [number, number]
+  [number, number],
 ] = [
   [JMA_NOWCAST_WEST, JMA_NOWCAST_NORTH], // Top-Left
   [JMA_NOWCAST_EAST, JMA_NOWCAST_NORTH], // Top-Right
@@ -52,19 +58,28 @@ export const JMA_NOWCAST_COORDINATES: [
 interface RawJMATargetTime {
   basetime: string;
   validtime: string;
-  member?: string;
   elements?: string[];
 }
 
 export interface JMANowcastCatalog {
   frames: TimelineFrameItem[];
   defaultIndex: number;
+  isStale?: boolean;
+  isPartial?: boolean;
+  savedAt?: string;
 }
 
-/**
- * JMAの時刻文字列 (YYYYMMDDHHmmss, UTC) を Date オブジェクトに変換
- */
-export function parseJMATimeUTC(str: string): Date {
+export function isValidJMATimeString(str: unknown): str is string {
+  if (typeof str !== 'string' || !/^(?:\d{12}|\d{14})$/.test(str)) return false;
+  const values = [Number(str.slice(0,4)), Number(str.slice(4,6))-1, Number(str.slice(6,8)), Number(str.slice(8,10)), Number(str.slice(10,12)), Number(str.slice(12,14) || 0)];
+  const d = new Date(Date.UTC(values[0], values[1], values[2], values[3], values[4], values[5]));
+  return [d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds()].every((n,i) => n === values[i]);
+}
+
+function parseJMATimeUTC(str: string): Date {
+  if (!isValidJMATimeString(str)) {
+    throw new Error(`Invalid JMA time string: ${JSON.stringify(str)}`);
+  }
   const yyyy = parseInt(str.slice(0, 4), 10);
   const mm = parseInt(str.slice(4, 6), 10) - 1;
   const dd = parseInt(str.slice(6, 8), 10);
@@ -74,10 +89,7 @@ export function parseJMATimeUTC(str: string): Date {
   return new Date(Date.UTC(yyyy, mm, dd, hh, min, ss));
 }
 
-/**
- * 分単位まで含めた JST 日時フォーマット (例: 2026-11-06 11:20 JST)
- */
-export function formatDateTimeMinuteJST(date: Date): string {
+function formatDateTimeMinuteJST(date: Date): string {
   const jstTime = new Date(date.getTime() + 9 * 60 * 60 * 1000);
   const yyyy = jstTime.getUTCFullYear();
   const mm = String(jstTime.getUTCMonth() + 1).padStart(2, '0');
@@ -87,67 +99,155 @@ export function formatDateTimeMinuteJST(date: Date): string {
   return `${yyyy}-${mm}-${dd} ${hh}:${min} JST`;
 }
 
+export function getJMAFrameKey(frame: TimelineFrameItem): string {
+  return `jma:${frame.tileDataset || 'hrpns'}:${frame.basetime || ''}:${frame.validtime || ''}:v1`;
+}
+
+async function fetchJsonWithTimeout<T>(url: string, timeoutMs = 6000): Promise<T | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) return null;
+    return (await res.json()) as T;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** 保存済みカタログを読み出し (FIX-08) */
+export function loadCachedJMACatalog(): JMANowcastCatalog | null {
+  const ls = safeGetLocalStorage();
+  if (!ls) return null;
+  try {
+    const raw = ls.getItem(JMA_CATALOG_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || (parsed.version !== undefined && parsed.version !== 1) || !Array.isArray(parsed.frames) || parsed.frames.length === 0) return null;
+    const frames: TimelineFrameItem[] = parsed.frames
+      .filter(
+        (f: any) =>
+          f &&
+          isValidJMATimeString(f.basetime) &&
+          isValidJMATimeString(f.validtime) &&
+          ["hrpns", "rasrf"].includes(f.tileDataset) &&
+          new Date(f.date).getTime() === parseJMATimeUTC(f.validtime).getTime()
+      )
+      .map((f: any) => ({
+        ...f,
+        date: parseJMATimeUTC(f.validtime),
+        labelJST: formatDateTimeMinuteJST(parseJMATimeUTC(f.validtime)),
+        relativeBadge: typeof f.relativeBadge === 'string' ? f.relativeBadge : '保存済み',
+        isForecast: typeof f.isForecast === 'boolean' ? f.isForecast : f.validtime > f.basetime,
+        isLatestObservation: f.isLatestObservation === true,
+      }));
+    if (frames.length === 0) return null;
+    return {
+      frames,
+      defaultIndex: Math.max(0, frames.findIndex(f => f.validtime === parsed.frames[parsed.defaultIndex]?.validtime)),
+      isStale: true,
+      savedAt: typeof parsed.savedAt === 'string' && Number.isFinite(Date.parse(parsed.savedAt)) ? parsed.savedAt : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function saveCachedJMACatalog(catalog: JMANowcastCatalog): void {
+  const ls = safeGetLocalStorage();
+  if (!ls) return;
+  try {
+    const data = {
+      version: 1,
+      frames: catalog.frames.map((f) => ({
+        ...f,
+        date: f.date.toISOString(),
+      })),
+      defaultIndex: catalog.defaultIndex,
+      savedAt: new Date().toISOString(),
+    };
+    ls.setItem(JMA_CATALOG_STORAGE_KEY, JSON.stringify(data));
+  } catch {
+    // ignore
+  }
+}
+
 /**
- * 気象庁 高解像度降水ナウキャスト (N1: 過去2h実況, N2: +60分予測) および
- * 今後の雨・降水短時間予報 (rasrf: 最大+15時間予測) カタログを統合取得します。
+ * 気象庁 高解像度降水ナウキャスト (N1, N2, rasrf) カタログを取得
+ * - N1実況を主経路とし、N2/rasrf障害でも実況を維持 (FIX-08)
+ * - 空配列や不正JSONからbasetime/validtimeなしの架空フレームを作らない
+ * - 通信不可時は保存済みカタログへフォールバック
  */
-export async function fetchJMANowcastCatalog(): Promise<JMANowcastCatalog> {
-  const [resN1, resN2, resRasrf] = await Promise.all([
-    fetch(JMA_NOWCAST_N1_URL),
-    fetch(JMA_NOWCAST_N2_URL),
-    fetch(JMA_RASRF_URL).catch(() => null),
+let catalogInFlight: Promise<JMANowcastCatalog> | null = null;
+export function fetchJMANowcastCatalog(): Promise<JMANowcastCatalog> {
+  if (!catalogInFlight) {
+    const pending = loadJMANowcastCatalog(); catalogInFlight = pending;
+    void pending.finally(() => { if (catalogInFlight === pending) catalogInFlight = null; }).catch(() => {});
+  }
+  return catalogInFlight;
+}
+async function loadJMANowcastCatalog(): Promise<JMANowcastCatalog> {
+  const [rawN1, rawN2, rawRasrf] = await Promise.all([
+    fetchJsonWithTimeout<RawJMATargetTime[]>(JMA_NOWCAST_N1_URL),
+    fetchJsonWithTimeout<RawJMATargetTime[]>(JMA_NOWCAST_N2_URL),
+    fetchJsonWithTimeout<RawJMATargetTime[]>(JMA_RASRF_URL),
   ]);
 
-  if (!resN1.ok) {
-    throw new Error(`JMA Nowcast N1 fetch failed: ${resN1.status}`);
+  // N1 が取得できなかった場合は保存済みカタログへフォールバック
+  if (!rawN1 || !Array.isArray(rawN1) || rawN1.length === 0) {
+    const cached = loadCachedJMACatalog();
+    if (cached) return cached;
+    throw new Error('JMA Nowcast catalog unavailable: N1 data fetch failed');
   }
 
-  const rawN1: RawJMATargetTime[] = await resN1.json();
-  const rawN2: RawJMATargetTime[] = resN2.ok ? await resN2.json() : [];
-  const rawRasrf: RawJMATargetTime[] =
-    resRasrf && resRasrf.ok ? await resRasrf.json() : [];
-
-  // 1. 過去実況 (hrpns) を validtime 昇順にソート
   const validN1 = rawN1
-    .filter((item) => !item.elements || item.elements.includes('hrpns'))
-    .sort((a, b) => a.validtime.localeCompare(b.validtime));
-
-  // 2. 高解像度降水ナウキャスト予測 (hrpns, 最大+60分) を validtime 昇順にソート
-  const validN2 = rawN2
-    .filter((item) => !item.elements || item.elements.includes('hrpns'))
-    .sort((a, b) => a.validtime.localeCompare(b.validtime));
-
-  // 3. 今後の雨・降水短時間予報 (rasrf, 最大+15時間) の予測フレームを validtime 昇順にソート
-  const validRasrf = rawRasrf
     .filter(
       (item) =>
-        item.basetime !== item.validtime &&
-        (!item.elements || item.elements.includes('rasrf'))
+        item &&
+        isValidJMATimeString(item.basetime) &&
+        isValidJMATimeString(item.validtime) &&
+        (!item.elements || item.elements.includes('hrpns'))
     )
     .sort((a, b) => a.validtime.localeCompare(b.validtime));
 
   if (validN1.length === 0) {
-    const now = new Date();
-    return {
-      frames: [
-        {
-          date: now,
-          labelJST: formatDateTimeMinuteJST(now),
-          relativeBadge: 'リアルタイム実況',
-          isForecast: false,
-          isLatestObservation: true,
-          tileDataset: 'hrpns',
-        },
-      ],
-      defaultIndex: 0,
-    };
+    const cached = loadCachedJMACatalog();
+    if (cached) return cached;
+    throw new Error('JMA Nowcast catalog empty: no valid N1 observation frames found');
   }
+
+  const validN2 = Array.isArray(rawN2)
+    ? rawN2
+        .filter(
+          (item) =>
+            item &&
+            isValidJMATimeString(item.basetime) &&
+            isValidJMATimeString(item.validtime) &&
+            (!item.elements || item.elements.includes('hrpns'))
+        )
+        .sort((a, b) => a.validtime.localeCompare(b.validtime))
+    : [];
+
+  const validRasrf = Array.isArray(rawRasrf)
+    ? rawRasrf
+        .filter(
+          (item) =>
+            item &&
+            isValidJMATimeString(item.basetime) &&
+            isValidJMATimeString(item.validtime) &&
+            item.basetime !== item.validtime &&
+            (!item.elements || item.elements.includes('rasrf'))
+        )
+        .sort((a, b) => a.validtime.localeCompare(b.validtime))
+    : [];
 
   const latestObsRaw = validN1[validN1.length - 1];
   const latestObsDate = parseJMATimeUTC(latestObsRaw.validtime);
   const twoHoursAgoMs = latestObsDate.getTime() - 120 * 60 * 1000;
 
-  // A. 過去2時間分の観測フレーム（10分刻み + 最新実況フレームは必ず含める）
+  // A. 過去2時間分の観測フレーム
   const obsFrames: TimelineFrameItem[] = [];
   for (let i = 0; i < validN1.length; i++) {
     const item = validN1[i];
@@ -161,7 +261,7 @@ export async function fetchJMANowcastCatalog(): Promise<JMANowcastCatalog> {
     obsFrames.push({
       date: d,
       labelJST: formatDateTimeMinuteJST(d),
-      relativeBadge: isLatest ? 'リアルタイム実況' : `-${diffMin}分`,
+      relativeBadge: isLatest ? '最新実況' : `-${diffMin}分`,
       isForecast: false,
       isLatestObservation: isLatest,
       basetime: item.basetime,
@@ -170,7 +270,7 @@ export async function fetchJMANowcastCatalog(): Promise<JMANowcastCatalog> {
     });
   }
 
-  // B. 直近1時間の高解像度ナウキャスト予測フレーム（10分刻み + N2最終フレーム [+55分/+60分] は必ず含める）
+  // B. 直近1時間の高解像度ナウキャスト予測フレーム
   const forecastFrames: TimelineFrameItem[] = [];
   let maxNowcastAheadMin = 0;
 
@@ -183,11 +283,14 @@ export async function fetchJMANowcastCatalog(): Promise<JMANowcastCatalog> {
     if (aheadMin <= 0) continue;
     if (!isLastN2 && aheadMin % 10 !== 0) continue;
 
-    maxNowcastAheadMin = Math.max(maxNowcastAheadMin, aheadMin);
+    if (aheadMin > maxNowcastAheadMin) {
+      maxNowcastAheadMin = aheadMin;
+    }
+
     forecastFrames.push({
       date: d,
       labelJST: formatDateTimeMinuteJST(d),
-      relativeBadge: `+${aheadMin}分 予測`,
+      relativeBadge: `+${aheadMin}分予報`,
       isForecast: true,
       isLatestObservation: false,
       basetime: item.basetime,
@@ -196,18 +299,18 @@ export async function fetchJMANowcastCatalog(): Promise<JMANowcastCatalog> {
     });
   }
 
-  // C. 1時間超〜最大+15時間先までの「今後の雨（降水短時間予報: rasrf）」フレームを連結
-  for (const item of validRasrf) {
+  // C. 最大+15時間の降水短時間予報フレーム
+  for (let i = 0; i < validRasrf.length; i++) {
+    const item = validRasrf[i];
     const d = parseJMATimeUTC(item.validtime);
     const aheadMin = Math.round((d.getTime() - latestObsDate.getTime()) / 60000);
-    // ナウキャスト最終時刻より30分以上先の予測フレームを連結（重複防止）
     if (aheadMin < maxNowcastAheadMin + 30) continue;
 
     const aheadHours = Math.round(aheadMin / 60);
     forecastFrames.push({
       date: d,
       labelJST: formatDateTimeMinuteJST(d),
-      relativeBadge: `+${aheadHours}時間 予測`,
+      relativeBadge: `+${aheadHours}h予報`,
       isForecast: true,
       isLatestObservation: false,
       basetime: item.basetime,
@@ -218,82 +321,104 @@ export async function fetchJMANowcastCatalog(): Promise<JMANowcastCatalog> {
 
   const allFrames = [...obsFrames, ...forecastFrames];
   const latestIdx = allFrames.findIndex((f) => f.isLatestObservation);
-
-  return {
+  const catalog: JMANowcastCatalog = {
     frames: allFrames,
     defaultIndex: latestIdx >= 0 ? latestIdx : Math.max(0, obsFrames.length - 1),
+    isStale: false,
+    savedAt: new Date().toISOString(),
+    isPartial: !Array.isArray(rawN2) || !Array.isArray(rawRasrf),
   };
+
+  saveCachedJMACatalog(catalog);
+  return catalog;
 }
 
-/**
- * 気象庁ナウキャスト (hrpns) / 降水短時間予報 (rasrf) のピクセルRGB値を降雨強度 (mm/h) に変換し、
- * 3D地形上で視認しやすい透過レーダーカラーへ補正します。
- */
-function classifyJMAPixel(
-  r: number,
-  g: number,
-  b: number
-): { mmh: number; outR: number; outG: number; outB: number; outA: number } | null {
-  // JMA hrpns / rasrf 共通パレット:
-  // Level 1: #f2f2ff (242,242,255) -> 0.5-1 mm/h (3D地形上で白飛びしないようシアンブルーに視認性強化)
-  if (r >= 230 && g >= 230 && b >= 245) {
-    return { mmh: 0.8, outR: 56, outG: 189, outB: 248, outA: 210 };
-  }
-  // Level 2: #a0d2ff (160,210,255) -> 1-5 mm/h
-  if (r >= 145 && r <= 175 && g >= 195 && g <= 225 && b >= 240) {
-    return { mmh: 2.5, outR: 14, outG: 165, outB: 233, outA: 230 };
-  }
-  // Level 3: #218cff (33,140,255) -> 5-10 mm/h
-  if (r <= 55 && g >= 120 && g <= 160 && b >= 240) {
-    return { mmh: 7.5, outR: 33, outG: 140, outB: 255, outA: 242 };
-  }
-  // Level 4: #0041ff (0,65,255) -> 10-20 mm/h
-  if (r <= 25 && g >= 45 && g <= 85 && b >= 240) {
-    return { mmh: 15.0, outR: 34, outG: 197, outB: 94, outA: 248 };
-  }
-  // Level 5: #faf500 (250,245,0) -> 20-30 mm/h
-  if (r >= 235 && g >= 225 && b <= 30) {
-    return { mmh: 25.0, outR: 250, outG: 204, outB: 21, outA: 252 };
-  }
-  // Level 6: #ff9900 (255,153,0) -> 30-50 mm/h
-  if (r >= 240 && g >= 135 && g <= 175 && b <= 30) {
-    return { mmh: 40.0, outR: 249, outG: 115, outB: 22, outA: 255 };
-  }
-  // Level 7: #ff2800 (255,40,0) -> 50-80 mm/h
-  if (r >= 240 && g <= 65 && b <= 30) {
-    return { mmh: 65.0, outR: 239, outG: 68, outB: 68, outA: 255 };
-  }
-  // Level 8: #b40068 (180,0,104) -> 80+ mm/h
-  if (r >= 160 && r <= 205 && g <= 25 && b >= 85 && b <= 125) {
-    return { mmh: 85.0, outR: 180, outG: 0, outB: 104, outA: 255 };
-  }
-  return null;
+// JMA official color guide Table 2-1. Decode only known categorical RGB values.
+const JMA_PALETTE = new Map([
+  [242,242,255,0.8,56,189,248,210], [160,210,255,2.5,14,165,233,230],
+  [33,140,255,7.5,33,140,255,242], [0,65,255,15,34,197,94,248],
+  [250,245,0,25,250,204,21,252], [255,153,0,40,249,115,22,255],
+  [255,40,0,65,239,68,68,255], [180,0,104,85,180,0,104,255],
+].map(c => [(c[0] << 16) | (c[1] << 8) | c[2], { mmh: c[3], outR: c[4], outG: c[5], outB: c[6], outA: c[7] }]));
+export function classifyJMAPixel(r: number, g: number, b: number): { mmh: number; outR: number; outG: number; outB: number; outA: number } | null {
+  return JMA_PALETTE.get((r << 16) | (g << 8) | b) ?? null;
 }
 
-function loadTileImage(url: string): Promise<HTMLImageElement | null> {
+function loadTileImage(
+  url: string,
+  signal?: AbortSignal,
+  timeoutMs = 8000
+): Promise<HTMLImageElement | null> {
   return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve(null);
+      return;
+    }
+
     const img = new Image();
     img.crossOrigin = 'anonymous';
-    img.onload = () => resolve(img);
-    img.onerror = () => resolve(null);
+
+    let timer: any = null;
+    const cleanup = () => {
+      if (timer) clearTimeout(timer);
+      img.onload = null;
+      img.onerror = null;
+      if (signal) signal.removeEventListener('abort', onAbort);
+    };
+
+    const onAbort = () => {
+      cleanup();
+      img.src = '';
+      resolve(null);
+    };
+
+    if (signal) {
+      signal.addEventListener('abort', onAbort);
+    }
+
+    timer = setTimeout(() => {
+      cleanup();
+      img.src = '';
+      resolve(null);
+    }, timeoutMs);
+
+    img.onload = () => {
+      cleanup();
+      resolve(img.naturalWidth === 256 && img.naturalHeight === 256 ? img : null);
+    };
+    img.onerror = () => {
+      cleanup();
+      resolve(null);
+    };
     img.src = url;
   });
 }
 
 /**
- * 指定フレームの気象庁ナウキャスト (hrpns) または 降水短時間予報 (rasrf) タイルを
- * 1枚の透過PNG DataURLに合成し、0ms地点インスペクター用の数値グリッドとともに返します。
+ * 指定フレームの気象庁ナウキャストまたは降水短時間予報タイルを取得・合成
+ * 全20タイル失敗時はエラーを投げ、降水なし扱いにしない (FIX-02)
  */
 export async function fetchJMANowcastRainLayer(
-  frame: TimelineFrameItem
+  frame: TimelineFrameItem,
+  signal?: AbortSignal
 ): Promise<GSMaPRainLayerResult> {
+  if (signal?.aborted) {
+    throw new Error('Aborted');
+  }
+
   const canvas = document.createElement('canvas');
   canvas.width = JMA_CANVAS_WIDTH;
   canvas.height = JMA_CANVAS_HEIGHT;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) {
+    throw new Error('Canvas 2D context not available');
+  }
 
   const isRasrf = frame.tileDataset === 'rasrf';
-  const tileTasks: Array<Promise<{ gx: number; gy: number; img: HTMLImageElement | null }>> = [];
+  const tileTasks: Array<
+    Promise<{ gx: number; gy: number; img: HTMLImageElement | null }>
+  > = [];
+
   for (let ty = JMA_Y_MIN; ty <= JMA_Y_MAX; ty++) {
     for (let tx = JMA_X_MIN; tx <= JMA_X_MAX; tx++) {
       const gx = tx - JMA_X_MIN;
@@ -301,61 +426,95 @@ export async function fetchJMANowcastRainLayer(
       const url = isRasrf
         ? `https://www.jma.go.jp/bosai/jmatile/data/rasrf/${frame.basetime}/none/${frame.validtime}/surf/rasrf/${JMA_TILE_Z}/${tx}/${ty}.png`
         : `https://www.jma.go.jp/bosai/jmatile/data/nowc/${frame.basetime}/none/${frame.validtime}/surf/hrpns/${JMA_TILE_Z}/${tx}/${ty}.png`;
-      tileTasks.push(loadTileImage(url).then((img) => ({ gx, gy, img })));
+      tileTasks.push(loadTileImage(url, signal).then((img) => ({ gx, gy, img })));
     }
   }
 
   const loadedTiles = await Promise.all(tileTasks);
-  if (ctx) {
-    for (const { gx, gy, img } of loadedTiles) {
-      if (img) {
-        ctx.drawImage(img, gx * 256, gy * 256, 256, 256);
-      }
+  if (signal?.aborted) {
+    throw new Error('Aborted');
+  }
+
+  let successCount = 0;
+  let missingCount = 0;
+
+  for (const { gx, gy, img } of loadedTiles) {
+    if (img) {
+      successCount++;
+      ctx.drawImage(img, gx * 256, gy * 256, 256, 256);
+    } else {
+      missingCount++;
     }
+  }
+
+  // 全20タイル失敗の場合はエラーとして扱い、正常フレームにしない (FIX-02)
+  if (successCount === 0) {
+    throw new Error(`JMA nowcast: All ${JMA_TOTAL_TILES} tiles failed to load`);
   }
 
   const jmaGrid = new Uint16Array(JMA_CANVAS_WIDTH * JMA_CANVAS_HEIGHT);
   let maxPrecipitation = 0;
   let sumPrecipitation = 0;
   let rainPixelCount = 0;
+  let unknownPixels = 0;
 
-  if (ctx) {
-    const imgData = ctx.getImageData(0, 0, JMA_CANVAS_WIDTH, JMA_CANVAS_HEIGHT);
-    const data = imgData.data;
-    const totalPixels = JMA_CANVAS_WIDTH * JMA_CANVAS_HEIGHT;
+  const imgData = ctx.getImageData(0, 0, JMA_CANVAS_WIDTH, JMA_CANVAS_HEIGHT);
+  const data = imgData.data;
+  const totalPixels = JMA_CANVAS_WIDTH * JMA_CANVAS_HEIGHT;
 
-    for (let i = 0; i < totalPixels; i++) {
-      const idx = i * 4;
-      const a = data[idx + 3];
-      if (a < 20) {
-        data[idx + 3] = 0;
-        continue;
-      }
-
-      const classified = classifyJMAPixel(data[idx], data[idx + 1], data[idx + 2]);
-      if (classified) {
-        jmaGrid[i] = Math.round(classified.mmh * 10);
-        data[idx] = classified.outR;
-        data[idx + 1] = classified.outG;
-        data[idx + 2] = classified.outB;
-        data[idx + 3] = classified.outA;
-
-        if (classified.mmh > maxPrecipitation) {
-          maxPrecipitation = classified.mmh;
-        }
-        sumPrecipitation += classified.mmh;
-        rainPixelCount++;
-      } else {
-        data[idx + 3] = 0;
-      }
+  for (let i = 0; i < totalPixels; i++) {
+    const idx = i * 4;
+    const a = data[idx + 3];
+    if (a === 0) {
+      rainPixelCount++;
+      data[idx + 3] = 0;
+      continue;
     }
 
-    ctx.putImageData(imgData, 0, 0);
+    const classified = classifyJMAPixel(data[idx], data[idx + 1], data[idx + 2]);
+    if (classified) {
+      jmaGrid[i] = Math.round(classified.mmh * 10);
+      data[idx] = classified.outR;
+      data[idx + 1] = classified.outG;
+      data[idx + 2] = classified.outB;
+      data[idx + 3] = classified.outA;
+
+      if (classified.mmh > maxPrecipitation) {
+        maxPrecipitation = classified.mmh;
+      }
+      sumPrecipitation += classified.mmh;
+      rainPixelCount++;
+    } else {
+      unknownPixels++; jmaGrid[i] = JMA_MISSING_VALUE;
+      data[idx + 3] = 0;
+    }
   }
 
+  // 部分欠落タイル領域のピクセルを JMA_MISSING_VALUE で埋める
+  if (missingCount > 0) {
+    for (const { gx, gy, img } of loadedTiles) {
+      if (!img) {
+        const startX = gx * 256;
+        const startY = gy * 256;
+        for (let dy = 0; dy < 256; dy++) {
+          const rowOffset = (startY + dy) * JMA_CANVAS_WIDTH;
+          for (let dx = 0; dx < 256; dx++) {
+            jmaGrid[rowOffset + startX + dx] = JMA_MISSING_VALUE;
+          }
+        }
+      }
+    }
+  }
+
+  ctx.putImageData(imgData, 0, 0);
+
   const imageUrl = canvas.toDataURL('image/png');
+  canvas.width = 0; canvas.height = 0;
   const meanPrecipitation =
     rainPixelCount > 0 ? Number((sumPrecipitation / rainPixelCount).toFixed(2)) : 0;
+  if (unknownPixels === totalPixels) throw new Error('JMA image has no recognized values');
+  const status: DataState = missingCount === 0 && unknownPixels === 0 ? 'success' : 'partial';
+  const key = getJMAFrameKey(frame);
 
   return {
     imageUrl,
@@ -366,17 +525,22 @@ export async function fetchJMANowcastRainLayer(
     meanPrecipitation,
     sourceType: 'jma-nowcast',
     jmaGrid,
+    status,
+    missingTilesCount: missingCount,
+    totalTilesCount: JMA_TOTAL_TILES,
+    key,
   };
 }
 
 /**
- * 合成済み気象庁ナウキャスト/降水短時間予報グリッドから指定経緯度の降雨強度 (mm/h) を0msで取得します。
+ * 合成済み気象庁ナウキャストグリッドから指定経緯度の降雨強度 (mm/h) を取得
+ * 欠測領域の場合は null を返し、0mm/h と混同しない (FIX-02)
  */
 export function inspectJMAPrecipitation(
   jmaGrid: Uint16Array | undefined,
   lng: number,
   lat: number
-): number {
+): number | null {
   if (
     !jmaGrid ||
     lng < JMA_NOWCAST_WEST ||
@@ -384,7 +548,7 @@ export function inspectJMAPrecipitation(
     lat < JMA_NOWCAST_SOUTH ||
     lat > JMA_NOWCAST_NORTH
   ) {
-    return 0;
+    return null;
   }
 
   const n = Math.pow(2, JMA_TILE_Z);
@@ -396,14 +560,16 @@ export function inspectJMAPrecipitation(
   const u = (tileX - JMA_X_MIN) / JMA_TILES_X;
   const v = (tileY - JMA_Y_MIN) / JMA_TILES_Y;
   if (u < 0 || u >= 1 || v < 0 || v >= 1) {
-    return 0;
+    return null;
   }
 
   const px = Math.min(JMA_CANVAS_WIDTH - 1, Math.max(0, Math.floor(u * JMA_CANVAS_WIDTH)));
   const py = Math.min(JMA_CANVAS_HEIGHT - 1, Math.max(0, Math.floor(v * JMA_CANVAS_HEIGHT)));
 
-  // クリック地点の3x3ピクセル近傍の最大値を取ることで境界上の微小クリックズレも吸収
+  // クリック地点の3x3ピクセル近傍を走査
+  let validCount = 0;
   let bestVal = 0;
+
   for (let dy = -1; dy <= 1; dy++) {
     const ny = py + dy;
     if (ny < 0 || ny >= JMA_CANVAS_HEIGHT) continue;
@@ -411,8 +577,18 @@ export function inspectJMAPrecipitation(
       const nx = px + dx;
       if (nx < 0 || nx >= JMA_CANVAS_WIDTH) continue;
       const val = jmaGrid[ny * JMA_CANVAS_WIDTH + nx];
+      if (val === JMA_MISSING_VALUE) {
+        // 欠測ピクセル
+        continue;
+      }
+      validCount++;
       if (val > bestVal) bestVal = val;
     }
+  }
+
+  // 近傍すべてが欠測なら null を返す (FIX-02)
+  if (validCount === 0) {
+    return null;
   }
 
   return Number((bestVal / 10).toFixed(2));

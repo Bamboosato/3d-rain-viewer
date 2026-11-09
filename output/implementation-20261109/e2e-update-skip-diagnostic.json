@@ -1,0 +1,331 @@
+{
+  "config": {
+    "argv": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\work_codex\\3d_rain_viewer\\node_modules\\@playwright\\test\\cli.js",
+      "test",
+      "--project=chromium",
+      "-g",
+      "actual old-to-new",
+      "--repeat-each=4"
+    ],
+    "configFile": "C:\\work_codex\\3d_rain_viewer\\playwright.config.ts",
+    "rootDir": "C:/work_codex/3d_rain_viewer/e2e",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "C:/work_codex/3d_rain_viewer/test-results",
+        "repeatEach": 4,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "C:/work_codex/3d_rain_viewer/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 45000
+      },
+      {
+        "outputDir": "C:/work_codex/3d_rain_viewer/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "webkit",
+        "name": "webkit",
+        "testDir": "C:/work_codex/3d_rain_viewer/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 45000
+      }
+    ],
+    "filteredProjects": [
+      {
+        "grep": {},
+        "grepInvert": null,
+        "outputDir": "C:\\work_codex\\3d_rain_viewer\\test-results",
+        "repeatEach": 4,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "name": "chromium",
+        "testDir": "C:\\work_codex\\3d_rain_viewer\\e2e",
+        "snapshotDir": "C:\\work_codex\\3d_rain_viewer\\e2e",
+        "testIgnore": [],
+        "testMatch": "**/*.@(spec|test).?(c|m)[jt]s?(x)",
+        "timeout": 45000,
+        "use": {
+          "baseURL": "http://localhost:4173",
+          "trace": "retain-on-failure",
+          "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/158.0.8127.18 Safari/537.36",
+          "viewport": {
+            "width": 1280,
+            "height": 720
+          },
+          "screen": {
+            "width": 1920,
+            "height": 1080
+          },
+          "deviceScaleFactor": 1,
+          "isMobile": false,
+          "hasTouch": false,
+          "defaultBrowserType": "chromium"
+        },
+        "dependencies": [],
+        "ignoreSnapshots": false,
+        "__projectId": "chromium"
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "output/implementation-20261109/e2e-results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "default",
+    "updateSourceMethod": "patch",
+    "version": "1.65.0",
+    "workers": 1,
+    "webServer": {
+      "command": "node e2e/server.mjs",
+      "url": "http://localhost:4173",
+      "reuseExistingServer": false,
+      "timeout": 15000
+    }
+  },
+  "suites": [
+    {
+      "title": "browser_core.spec.ts",
+      "file": "browser_core.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "T01/20/21 actual old-to-new SW preserves editing and foreign cache",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 45000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2834,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-09T09:04:26.970Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            },
+            {
+              "timeout": 45000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 18194,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m1\u001b[39m\nReceived: \u001b[31m0\u001b[39m\n\nCall Log:\n- Timeout 15000ms exceeded while waiting on the predicate",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m1\u001b[39m\nReceived: \u001b[31m0\u001b[39m\n\nCall Log:\n- Timeout 15000ms exceeded while waiting on the predicate\n    at updateWhileBlocked (C:\\work_codex\\3d_rain_viewer\\e2e\\browser_core.spec.ts:16:45)\n    at C:\\work_codex\\3d_rain_viewer\\e2e\\browser_core.spec.ts:61:56",
+                    "location": {
+                      "file": "C:\\work_codex\\3d_rain_viewer\\e2e\\browser_core.spec.ts",
+                      "column": 45,
+                      "line": 16
+                    },
+                    "snippet": " \u001b[90m 14 |\u001b[39m   \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mevaluate(\u001b[36masync\u001b[39m()\u001b[33m=>\u001b[39m{\u001b[36mawait\u001b[39m (\u001b[36mawait\u001b[39m navigator\u001b[33m.\u001b[39mserviceWorker\u001b[33m.\u001b[39mgetRegistration())\u001b[33m!\u001b[39m\u001b[33m.\u001b[39mupdate()\u001b[33m;\u001b[39m})\u001b[33m;\u001b[39m\n \u001b[90m 15 |\u001b[39m   \u001b[36mreturn\u001b[39m page\u001b[33m.\u001b[39mgetByRole(\u001b[32m'button'\u001b[39m\u001b[33m,\u001b[39m{name\u001b[33m:\u001b[39m\u001b[32m'編集・取り込みの完了後に更新できます'\u001b[39m})\u001b[33m.\u001b[39mcount()\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 16 |\u001b[39m  }\u001b[33m,\u001b[39m{timeout\u001b[33m:\u001b[39m\u001b[35m15000\u001b[39m\u001b[33m,\u001b[39mintervals\u001b[33m:\u001b[39m[\u001b[35m100\u001b[39m\u001b[33m,\u001b[39m\u001b[35m250\u001b[39m\u001b[33m,\u001b[39m\u001b[35m500\u001b[39m]})\u001b[33m.\u001b[39mtoBe(\u001b[35m1\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                             \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 17 |\u001b[39m }\n \u001b[90m 18 |\u001b[39m \u001b[36masync\u001b[39m \u001b[36mfunction\u001b[39m save(page\u001b[33m:\u001b[39m\u001b[33mPage\u001b[39m\u001b[33m,\u001b[39mname\u001b[33m:\u001b[39mstring){\n \u001b[90m 19 |\u001b[39m  \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mgetByRole(\u001b[32m'button'\u001b[39m\u001b[33m,\u001b[39m{name\u001b[33m:\u001b[39m\u001b[32m'お気に入りに追加'\u001b[39m\u001b[33m,\u001b[39mexact\u001b[33m:\u001b[39m\u001b[36mtrue\u001b[39m})\u001b[33m.\u001b[39mclick()\u001b[33m;\u001b[39m"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "C:\\work_codex\\3d_rain_viewer\\e2e\\browser_core.spec.ts",
+                        "column": 45,
+                        "line": 16
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m1\u001b[39m\nReceived: \u001b[31m0\u001b[39m\n\nCall Log:\n- Timeout 15000ms exceeded while waiting on the predicate\n\n  14 |   await page.evaluate(async()=>{await (await navigator.serviceWorker.getRegistration())!.update();});\n  15 |   return page.getByRole('button',{name:'編集・取り込みの完了後に更新できます'}).count();\n> 16 |  },{timeout:15000,intervals:[100,250,500]}).toBe(1);\n     |                                             ^\n  17 | }\n  18 | async function save(page:Page,name:string){\n  19 |  await page.getByRole('button',{name:'お気に入りに追加',exact:true}).click();\n    at updateWhileBlocked (C:\\work_codex\\3d_rain_viewer\\e2e\\browser_core.spec.ts:16:45)\n    at C:\\work_codex\\3d_rain_viewer\\e2e\\browser_core.spec.ts:61:56"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-09T09:04:30.443Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "sw-state",
+                      "contentType": "application/json",
+                      "body": "ewogICJicm93c2VyIjogewogICAgInBlbmRpbmciOiB7CiAgICAgICJwZW5kaW5nIjogW10sCiAgICAgICJza2lwQ2FsbHMiOiAwLAogICAgICAic2tpcERvbmUiOiAwLAogICAgICAiY2FjaGUiOiAicmFpbjNkLXNoZWxsLXYxMiIKICAgIH0sCiAgICAid2FpdGluZ0luZm8iOiB7CiAgICAgICJwZW5kaW5nIjogW10sCiAgICAgICJza2lwQ2FsbHMiOiAxLAogICAgICAic2tpcERvbmUiOiAxLAogICAgICAiY2FjaGUiOiAicmFpbjNkLXNoZWxsLXYxMyIKICAgIH0sCiAgICAiY29udHJvbGxlciI6ICJhY3RpdmF0ZWQiLAogICAgImFjdGl2ZSI6ICJhY3RpdmF0ZWQiLAogICAgIndhaXRpbmciOiAiaW5zdGFsbGVkIiwKICAgICJjYWNoZXMiOiBbCiAgICAgICJyYWluM2Qtc2hlbGwtdjEyIiwKICAgICAgInJhaW4zZC1vcGZzLWZhbGxiYWNrLXYxIiwKICAgICAgInJhaW4zZC1zaGVsbC12MTAiLAogICAgICAicmFpbjNkLXNoZWxsLXYxMyIKICAgIF0sCiAgICAiYnV0dG9ucyI6IFsKICAgICAgIjxidXR0b24gY2xhc3M9XCJmaXhlZCB0b3AtMTYgcmlnaHQtNCB6LVsxMDBdIHJvdW5kZWQgYmctc2t5LTkwMCBwLTMgdGV4dC13aGl0ZSBkaXNhYmxlZDpvcGFjaXR5LTUwXCIgaGlkZGVuPVwiXCIgZGlzYWJsZWQ9XCJcIj7nt6jpm4bjg7vlj5bjgorovrzjgb/jga7lrozkuoblvozjgavmm7TmlrDjgafjgY3jgb7jgZk8L2J1dHRvbj4iCiAgICBdCiAgfSwKICAic2VydmVyIjogewogICAgInZlcnNpb24iOiAibmV3IiwKICAgICJ3ZWF0aGVyIjogInplcm8iLAogICAgInN3UmVxdWVzdHMiOiBbCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MDY3MzgwLAogICAgICAgICJ2ZXJzaW9uIjogIm9sZCIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUwNjc2NTEsCiAgICAgICAgInZlcnNpb24iOiAib2xkIgogICAgICB9LAogICAgICB7CiAgICAgICAgImF0IjogMTc5NDIxNTA2NzkxNCwKICAgICAgICAidmVyc2lvbiI6ICJvbGQiCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MDY4MTEwLAogICAgICAgICJ2ZXJzaW9uIjogIm5ldyIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUwNjg1MjQsCiAgICAgICAgInZlcnNpb24iOiAibmV3IgogICAgICB9LAogICAgICB7CiAgICAgICAgImF0IjogMTc5NDIxNTA2OTg2NCwKICAgICAgICAidmVyc2lvbiI6ICJuZXciCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MDcwODc1LAogICAgICAgICJ2ZXJzaW9uIjogIm9sZCIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUwNzExNDQsCiAgICAgICAgInZlcnNpb24iOiAib2xkIgogICAgICB9LAogICAgICB7CiAgICAgICAgImF0IjogMTc5NDIxNTA3MTM3NCwKICAgICAgICAidmVyc2lvbiI6ICJvbGQiCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MDcxNjMwLAogICAgICAgICJ2ZXJzaW9uIjogIm5ldyIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUwNzIwNjgsCiAgICAgICAgInZlcnNpb24iOiAibmV3IgogICAgICB9LAogICAgICB7CiAgICAgICAgImF0IjogMTc5NDIxNTA3MjYwMiwKICAgICAgICAidmVyc2lvbiI6ICJuZXciCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MDczMTM3LAogICAgICAgICJ2ZXJzaW9uIjogIm5ldyIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUwNzM2NzIsCiAgICAgICAgInZlcnNpb24iOiAibmV3IgogICAgICB9LAogICAgICB7CiAgICAgICAgImF0IjogMTc5NDIxNTA3NDE5NywKICAgICAgICAidmVyc2lvbiI6ICJuZXciCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MDc0NzIzLAogICAgICAgICJ2ZXJzaW9uIjogIm5ldyIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUwNzUyNDMsCiAgICAgICAgInZlcnNpb24iOiAibmV3IgogICAgICB9LAogICAgICB7CiAgICAgICAgImF0IjogMTc5NDIxNTA3NTc2MywKICAgICAgICAidmVyc2lvbiI6ICJuZXciCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MDc2MzA1LAogICAgICAgICJ2ZXJzaW9uIjogIm5ldyIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUwNzY4MjgsCiAgICAgICAgInZlcnNpb24iOiAibmV3IgogICAgICB9LAogICAgICB7CiAgICAgICAgImF0IjogMTc5NDIxNTA3NzM1NiwKICAgICAgICAidmVyc2lvbiI6ICJuZXciCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MDc3ODc3LAogICAgICAgICJ2ZXJzaW9uIjogIm5ldyIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUwNzg0MDYsCiAgICAgICAgInZlcnNpb24iOiAibmV3IgogICAgICB9LAogICAgICB7CiAgICAgICAgImF0IjogMTc5NDIxNTA3ODkzOSwKICAgICAgICAidmVyc2lvbiI6ICJuZXciCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MDc5NDYyLAogICAgICAgICJ2ZXJzaW9uIjogIm5ldyIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUwNzk5ODEsCiAgICAgICAgInZlcnNpb24iOiAibmV3IgogICAgICB9LAogICAgICB7CiAgICAgICAgImF0IjogMTc5NDIxNTA4MDUwNSwKICAgICAgICAidmVyc2lvbiI6ICJuZXciCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MDgxMDM5LAogICAgICAgICJ2ZXJzaW9uIjogIm5ldyIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUwODE1NjAsCiAgICAgICAgInZlcnNpb24iOiAibmV3IgogICAgICB9LAogICAgICB7CiAgICAgICAgImF0IjogMTc5NDIxNTA4MjA4NCwKICAgICAgICAidmVyc2lvbiI6ICJuZXciCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MDgyNjA3LAogICAgICAgICJ2ZXJzaW9uIjogIm5ldyIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUwODMxMzYsCiAgICAgICAgInZlcnNpb24iOiAibmV3IgogICAgICB9LAogICAgICB7CiAgICAgICAgImF0IjogMTc5NDIxNTA4MzY2MiwKICAgICAgICAidmVyc2lvbiI6ICJuZXciCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MDg0MTk4LAogICAgICAgICJ2ZXJzaW9uIjogIm5ldyIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUwODQ3MjMsCiAgICAgICAgInZlcnNpb24iOiAibmV3IgogICAgICB9LAogICAgICB7CiAgICAgICAgImF0IjogMTc5NDIxNTA4NTI4MywKICAgICAgICAidmVyc2lvbiI6ICJuZXciCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MDg1ODY1LAogICAgICAgICJ2ZXJzaW9uIjogIm5ldyIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUwODY0MDksCiAgICAgICAgInZlcnNpb24iOiAibmV3IgogICAgICB9CiAgICBdCiAgfQp9"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "C:\\work_codex\\3d_rain_viewer\\test-results\\browser_core-T01-20-21-act-de2d1-s-editing-and-foreign-cache-chromium-repeat1\\error-context.md"
+                    },
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "C:\\work_codex\\3d_rain_viewer\\test-results\\browser_core-T01-20-21-act-de2d1-s-editing-and-foreign-cache-chromium-repeat1\\trace.zip"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "C:\\work_codex\\3d_rain_viewer\\e2e\\browser_core.spec.ts",
+                    "column": 45,
+                    "line": 16
+                  }
+                }
+              ],
+              "status": "unexpected"
+            },
+            {
+              "timeout": 45000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3605,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-09T09:04:51.633Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            },
+            {
+              "timeout": 45000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 18082,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m1\u001b[39m\nReceived: \u001b[31m0\u001b[39m\n\nCall Log:\n- Timeout 15000ms exceeded while waiting on the predicate",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m1\u001b[39m\nReceived: \u001b[31m0\u001b[39m\n\nCall Log:\n- Timeout 15000ms exceeded while waiting on the predicate\n    at updateWhileBlocked (C:\\work_codex\\3d_rain_viewer\\e2e\\browser_core.spec.ts:16:45)\n    at C:\\work_codex\\3d_rain_viewer\\e2e\\browser_core.spec.ts:61:56",
+                    "location": {
+                      "file": "C:\\work_codex\\3d_rain_viewer\\e2e\\browser_core.spec.ts",
+                      "column": 45,
+                      "line": 16
+                    },
+                    "snippet": " \u001b[90m 14 |\u001b[39m   \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mevaluate(\u001b[36masync\u001b[39m()\u001b[33m=>\u001b[39m{\u001b[36mawait\u001b[39m (\u001b[36mawait\u001b[39m navigator\u001b[33m.\u001b[39mserviceWorker\u001b[33m.\u001b[39mgetRegistration())\u001b[33m!\u001b[39m\u001b[33m.\u001b[39mupdate()\u001b[33m;\u001b[39m})\u001b[33m;\u001b[39m\n \u001b[90m 15 |\u001b[39m   \u001b[36mreturn\u001b[39m page\u001b[33m.\u001b[39mgetByRole(\u001b[32m'button'\u001b[39m\u001b[33m,\u001b[39m{name\u001b[33m:\u001b[39m\u001b[32m'編集・取り込みの完了後に更新できます'\u001b[39m})\u001b[33m.\u001b[39mcount()\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 16 |\u001b[39m  }\u001b[33m,\u001b[39m{timeout\u001b[33m:\u001b[39m\u001b[35m15000\u001b[39m\u001b[33m,\u001b[39mintervals\u001b[33m:\u001b[39m[\u001b[35m100\u001b[39m\u001b[33m,\u001b[39m\u001b[35m250\u001b[39m\u001b[33m,\u001b[39m\u001b[35m500\u001b[39m]})\u001b[33m.\u001b[39mtoBe(\u001b[35m1\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                             \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 17 |\u001b[39m }\n \u001b[90m 18 |\u001b[39m \u001b[36masync\u001b[39m \u001b[36mfunction\u001b[39m save(page\u001b[33m:\u001b[39m\u001b[33mPage\u001b[39m\u001b[33m,\u001b[39mname\u001b[33m:\u001b[39mstring){\n \u001b[90m 19 |\u001b[39m  \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mgetByRole(\u001b[32m'button'\u001b[39m\u001b[33m,\u001b[39m{name\u001b[33m:\u001b[39m\u001b[32m'お気に入りに追加'\u001b[39m\u001b[33m,\u001b[39mexact\u001b[33m:\u001b[39m\u001b[36mtrue\u001b[39m})\u001b[33m.\u001b[39mclick()\u001b[33m;\u001b[39m"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "C:\\work_codex\\3d_rain_viewer\\e2e\\browser_core.spec.ts",
+                        "column": 45,
+                        "line": 16
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m1\u001b[39m\nReceived: \u001b[31m0\u001b[39m\n\nCall Log:\n- Timeout 15000ms exceeded while waiting on the predicate\n\n  14 |   await page.evaluate(async()=>{await (await navigator.serviceWorker.getRegistration())!.update();});\n  15 |   return page.getByRole('button',{name:'編集・取り込みの完了後に更新できます'}).count();\n> 16 |  },{timeout:15000,intervals:[100,250,500]}).toBe(1);\n     |                                             ^\n  17 | }\n  18 | async function save(page:Page,name:string){\n  19 |  await page.getByRole('button',{name:'お気に入りに追加',exact:true}).click();\n    at updateWhileBlocked (C:\\work_codex\\3d_rain_viewer\\e2e\\browser_core.spec.ts:16:45)\n    at C:\\work_codex\\3d_rain_viewer\\e2e\\browser_core.spec.ts:61:56"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-11-09T09:04:56.415Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "sw-state",
+                      "contentType": "application/json",
+                      "body": "ewogICJicm93c2VyIjogewogICAgInBlbmRpbmciOiB7CiAgICAgICJwZW5kaW5nIjogW10sCiAgICAgICJza2lwQ2FsbHMiOiAwLAogICAgICAic2tpcERvbmUiOiAwLAogICAgICAiY2FjaGUiOiAicmFpbjNkLXNoZWxsLXYxMiIKICAgIH0sCiAgICAid2FpdGluZ0luZm8iOiB7CiAgICAgICJwZW5kaW5nIjogW10sCiAgICAgICJza2lwQ2FsbHMiOiAxLAogICAgICAic2tpcERvbmUiOiAxLAogICAgICAiY2FjaGUiOiAicmFpbjNkLXNoZWxsLXYxMyIKICAgIH0sCiAgICAiY29udHJvbGxlciI6ICJhY3RpdmF0ZWQiLAogICAgImFjdGl2ZSI6ICJhY3RpdmF0ZWQiLAogICAgIndhaXRpbmciOiAiaW5zdGFsbGVkIiwKICAgICJjYWNoZXMiOiBbCiAgICAgICJyYWluM2Qtc2hlbGwtdjEyIiwKICAgICAgInJhaW4zZC1vcGZzLWZhbGxiYWNrLXYxIiwKICAgICAgInJhaW4zZC1zaGVsbC12MTAiLAogICAgICAicmFpbjNkLXNoZWxsLXYxMyIKICAgIF0sCiAgICAiYnV0dG9ucyI6IFsKICAgICAgIjxidXR0b24gY2xhc3M9XCJmaXhlZCB0b3AtMTYgcmlnaHQtNCB6LVsxMDBdIHJvdW5kZWQgYmctc2t5LTkwMCBwLTMgdGV4dC13aGl0ZSBkaXNhYmxlZDpvcGFjaXR5LTUwXCIgaGlkZGVuPVwiXCIgZGlzYWJsZWQ9XCJcIj7nt6jpm4bjg7vlj5bjgorovrzjgb/jga7lrozkuoblvozjgavmm7TmlrDjgafjgY3jgb7jgZk8L2J1dHRvbj4iCiAgICBdCiAgfSwKICAic2VydmVyIjogewogICAgInZlcnNpb24iOiAibmV3IiwKICAgICJ3ZWF0aGVyIjogInplcm8iLAogICAgInN3UmVxdWVzdHMiOiBbCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MDY3MzgwLAogICAgICAgICJ2ZXJzaW9uIjogIm9sZCIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUwNjc2NTEsCiAgICAgICAgInZlcnNpb24iOiAib2xkIgogICAgICB9LAogICAgICB7CiAgICAgICAgImF0IjogMTc5NDIxNTA2NzkxNCwKICAgICAgICAidmVyc2lvbiI6ICJvbGQiCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MDY4MTEwLAogICAgICAgICJ2ZXJzaW9uIjogIm5ldyIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUwNjg1MjQsCiAgICAgICAgInZlcnNpb24iOiAibmV3IgogICAgICB9LAogICAgICB7CiAgICAgICAgImF0IjogMTc5NDIxNTA2OTg2NCwKICAgICAgICAidmVyc2lvbiI6ICJuZXciCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MDcwODc1LAogICAgICAgICJ2ZXJzaW9uIjogIm9sZCIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUwNzExNDQsCiAgICAgICAgInZlcnNpb24iOiAib2xkIgogICAgICB9LAogICAgICB7CiAgICAgICAgImF0IjogMTc5NDIxNTA3MTM3NCwKICAgICAgICAidmVyc2lvbiI6ICJvbGQiCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MDcxNjMwLAogICAgICAgICJ2ZXJzaW9uIjogIm5ldyIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUwNzIwNjgsCiAgICAgICAgInZlcnNpb24iOiAibmV3IgogICAgICB9LAogICAgICB7CiAgICAgICAgImF0IjogMTc5NDIxNTA3MjYwMiwKICAgICAgICAidmVyc2lvbiI6ICJuZXciCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MDczMTM3LAogICAgICAgICJ2ZXJzaW9uIjogIm5ldyIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUwNzM2NzIsCiAgICAgICAgInZlcnNpb24iOiAibmV3IgogICAgICB9LAogICAgICB7CiAgICAgICAgImF0IjogMTc5NDIxNTA3NDE5NywKICAgICAgICAidmVyc2lvbiI6ICJuZXciCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MDc0NzIzLAogICAgICAgICJ2ZXJzaW9uIjogIm5ldyIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUwNzUyNDMsCiAgICAgICAgInZlcnNpb24iOiAibmV3IgogICAgICB9LAogICAgICB7CiAgICAgICAgImF0IjogMTc5NDIxNTA3NTc2MywKICAgICAgICAidmVyc2lvbiI6ICJuZXciCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MDc2MzA1LAogICAgICAgICJ2ZXJzaW9uIjogIm5ldyIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUwNzY4MjgsCiAgICAgICAgInZlcnNpb24iOiAibmV3IgogICAgICB9LAogICAgICB7CiAgICAgICAgImF0IjogMTc5NDIxNTA3NzM1NiwKICAgICAgICAidmVyc2lvbiI6ICJuZXciCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MDc3ODc3LAogICAgICAgICJ2ZXJzaW9uIjogIm5ldyIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUwNzg0MDYsCiAgICAgICAgInZlcnNpb24iOiAibmV3IgogICAgICB9LAogICAgICB7CiAgICAgICAgImF0IjogMTc5NDIxNTA3ODkzOSwKICAgICAgICAidmVyc2lvbiI6ICJuZXciCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MDc5NDYyLAogICAgICAgICJ2ZXJzaW9uIjogIm5ldyIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUwNzk5ODEsCiAgICAgICAgInZlcnNpb24iOiAibmV3IgogICAgICB9LAogICAgICB7CiAgICAgICAgImF0IjogMTc5NDIxNTA4MDUwNSwKICAgICAgICAidmVyc2lvbiI6ICJuZXciCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MDgxMDM5LAogICAgICAgICJ2ZXJzaW9uIjogIm5ldyIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUwODE1NjAsCiAgICAgICAgInZlcnNpb24iOiAibmV3IgogICAgICB9LAogICAgICB7CiAgICAgICAgImF0IjogMTc5NDIxNTA4MjA4NCwKICAgICAgICAidmVyc2lvbiI6ICJuZXciCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MDgyNjA3LAogICAgICAgICJ2ZXJzaW9uIjogIm5ldyIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUwODMxMzYsCiAgICAgICAgInZlcnNpb24iOiAibmV3IgogICAgICB9LAogICAgICB7CiAgICAgICAgImF0IjogMTc5NDIxNTA4MzY2MiwKICAgICAgICAidmVyc2lvbiI6ICJuZXciCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MDg0MTk4LAogICAgICAgICJ2ZXJzaW9uIjogIm5ldyIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUwODQ3MjMsCiAgICAgICAgInZlcnNpb24iOiAibmV3IgogICAgICB9LAogICAgICB7CiAgICAgICAgImF0IjogMTc5NDIxNTA4NTI4MywKICAgICAgICAidmVyc2lvbiI6ICJuZXciCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MDg1ODY1LAogICAgICAgICJ2ZXJzaW9uIjogIm5ldyIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUwODY0MDksCiAgICAgICAgInZlcnNpb24iOiAibmV3IgogICAgICB9LAogICAgICB7CiAgICAgICAgImF0IjogMTc5NDIxNTA5MjIxNywKICAgICAgICAidmVyc2lvbiI6ICJvbGQiCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MDkyNTkwLAogICAgICAgICJ2ZXJzaW9uIjogIm9sZCIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUwOTI4NzUsCiAgICAgICAgInZlcnNpb24iOiAib2xkIgogICAgICB9LAogICAgICB7CiAgICAgICAgImF0IjogMTc5NDIxNTA5MzIxNywKICAgICAgICAidmVyc2lvbiI6ICJuZXciCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MDkzNjcyLAogICAgICAgICJ2ZXJzaW9uIjogIm5ldyIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUwOTUyMjcsCiAgICAgICAgInZlcnNpb24iOiAibmV3IgogICAgICB9LAogICAgICB7CiAgICAgICAgImF0IjogMTc5NDIxNTA5Njk0NCwKICAgICAgICAidmVyc2lvbiI6ICJvbGQiCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MDk3MzA4LAogICAgICAgICJ2ZXJzaW9uIjogIm9sZCIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUwOTc2NjEsCiAgICAgICAgInZlcnNpb24iOiAib2xkIgogICAgICB9LAogICAgICB7CiAgICAgICAgImF0IjogMTc5NDIxNTA5NzkwOCwKICAgICAgICAidmVyc2lvbiI6ICJuZXciCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MDk4MzczLAogICAgICAgICJ2ZXJzaW9uIjogIm5ldyIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUwOTg5MDgsCiAgICAgICAgInZlcnNpb24iOiAibmV3IgogICAgICB9LAogICAgICB7CiAgICAgICAgImF0IjogMTc5NDIxNTA5OTQzOSwKICAgICAgICAidmVyc2lvbiI6ICJuZXciCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MDk5OTcxLAogICAgICAgICJ2ZXJzaW9uIjogIm5ldyIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUxMDA1MDIsCiAgICAgICAgInZlcnNpb24iOiAibmV3IgogICAgICB9LAogICAgICB7CiAgICAgICAgImF0IjogMTc5NDIxNTEwMTAzMSwKICAgICAgICAidmVyc2lvbiI6ICJuZXciCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MTAxNTYwLAogICAgICAgICJ2ZXJzaW9uIjogIm5ldyIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUxMDIwODQsCiAgICAgICAgInZlcnNpb24iOiAibmV3IgogICAgICB9LAogICAgICB7CiAgICAgICAgImF0IjogMTc5NDIxNTEwMjYyOCwKICAgICAgICAidmVyc2lvbiI6ICJuZXciCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MTAzMTU2LAogICAgICAgICJ2ZXJzaW9uIjogIm5ldyIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUxMDM2ODgsCiAgICAgICAgInZlcnNpb24iOiAibmV3IgogICAgICB9LAogICAgICB7CiAgICAgICAgImF0IjogMTc5NDIxNTEwNDIyNCwKICAgICAgICAidmVyc2lvbiI6ICJuZXciCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MTA0NzU4LAogICAgICAgICJ2ZXJzaW9uIjogIm5ldyIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUxMDUyODYsCiAgICAgICAgInZlcnNpb24iOiAibmV3IgogICAgICB9LAogICAgICB7CiAgICAgICAgImF0IjogMTc5NDIxNTEwNTgxNywKICAgICAgICAidmVyc2lvbiI6ICJuZXciCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MTA2MzQ1LAogICAgICAgICJ2ZXJzaW9uIjogIm5ldyIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUxMDY4NzIsCiAgICAgICAgInZlcnNpb24iOiAibmV3IgogICAgICB9LAogICAgICB7CiAgICAgICAgImF0IjogMTc5NDIxNTEwNzQwMywKICAgICAgICAidmVyc2lvbiI6ICJuZXciCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MTA3OTM5LAogICAgICAgICJ2ZXJzaW9uIjogIm5ldyIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUxMDg0NzAsCiAgICAgICAgInZlcnNpb24iOiAibmV3IgogICAgICB9LAogICAgICB7CiAgICAgICAgImF0IjogMTc5NDIxNTEwOTAwMywKICAgICAgICAidmVyc2lvbiI6ICJuZXciCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MTA5NTQ3LAogICAgICAgICJ2ZXJzaW9uIjogIm5ldyIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUxMTAwODEsCiAgICAgICAgInZlcnNpb24iOiAibmV3IgogICAgICB9LAogICAgICB7CiAgICAgICAgImF0IjogMTc5NDIxNTExMDYwOCwKICAgICAgICAidmVyc2lvbiI6ICJuZXciCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MTExMTQzLAogICAgICAgICJ2ZXJzaW9uIjogIm5ldyIKICAgICAgfSwKICAgICAgewogICAgICAgICJhdCI6IDE3OTQyMTUxMTE2NjksCiAgICAgICAgInZlcnNpb24iOiAibmV3IgogICAgICB9LAogICAgICB7CiAgICAgICAgImF0IjogMTc5NDIxNTExMjE5NywKICAgICAgICAidmVyc2lvbiI6ICJuZXciCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAiYXQiOiAxNzk0MjE1MTEyNzMwLAogICAgICAgICJ2ZXJzaW9uIjogIm5ldyIKICAgICAgfQogICAgXQogIH0KfQ=="
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "C:\\work_codex\\3d_rain_viewer\\test-results\\browser_core-T01-20-21-act-de2d1-s-editing-and-foreign-cache-chromium-repeat3\\error-context.md"
+                    },
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "C:\\work_codex\\3d_rain_viewer\\test-results\\browser_core-T01-20-21-act-de2d1-s-editing-and-foreign-cache-chromium-repeat3\\trace.zip"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "C:\\work_codex\\3d_rain_viewer\\e2e\\browser_core.spec.ts",
+                    "column": 45,
+                    "line": 16
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "9b574a3f55dd97c18164-3204c9a2578806b0c854",
+          "file": "browser_core.spec.ts",
+          "line": 57,
+          "column": 1
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-11-09T09:04:26.244Z",
+    "duration": 50351.124,
+    "expected": 2,
+    "skipped": 0,
+    "unexpected": 2,
+    "flaky": 0
+  }
+}

@@ -1,3 +1,4 @@
+import { useUpdateBlocker } from '../lib/updateGuard';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   MapPin,
@@ -19,15 +20,21 @@ interface InspectorProps {
   point: InspectorPoint | null;
   onClose: () => void;
   matchedFavorite?: PresetLocation | null;
-  onSaveFavorite?: (name: string) => void;
-  onRemoveFavorite?: (id: string) => void;
+  onSaveFavorite?: (name: string) => void | Promise<any>;
+  onRemoveFavorite?: (id: string) => void | Promise<any>;
   onSharePoint?: (pointName: string) => void;
 }
 
-function getRainfallIntensityInfo(mmPerHour: number): {
+function getRainfallIntensityInfo(mmPerHour: number | null): {
   label: string;
   badgeClass: string;
 } {
+  if (mmPerHour === null) {
+    return {
+      label: '欠測 / 取得不可',
+      badgeClass: 'bg-slate-800/80 border-slate-700/80 text-slate-400',
+    };
+  }
   if (mmPerHour >= 80) {
     return {
       label: '猛烈な雨',
@@ -96,6 +103,9 @@ export const Inspector: React.FC<InspectorProps> = ({
   onSharePoint,
 }) => {
   const [isEditingFav, setIsEditingFav] = useState<boolean>(false);
+  const [isSavingFav, setIsSavingFav] = useState<boolean>(false);
+  useUpdateBlocker(isEditingFav || isSavingFav);
+  const [favSaveError, setFavSaveError] = useState<string | null>(null);
   const [favNameInput, setFavNameInput] = useState<string>('');
   const [osmCandidates, setOsmCandidates] = useState<OsmPlaceCandidate[]>([]);
   const [isLoadingOsm, setIsLoadingOsm] = useState<boolean>(false);
@@ -188,7 +198,7 @@ export const Inspector: React.FC<InspectorProps> = ({
 
   if (!point) return null;
 
-  const rainVal = point.precipitation ?? 0;
+  const rainVal = point.precipitation;
   const intensity = getRainfallIntensityInfo(rainVal);
 
   // PC画面ではクリック地点の近傍に配置しつつ、上部ヘッダー（72px）および下部タイムラインバー（116px）と絶対に重ならないようクランプ
@@ -233,11 +243,23 @@ export const Inspector: React.FC<InspectorProps> = ({
     clampedTop = Math.min(Math.max(sy - 60, TOP_SAFE_OFFSET), maxAllowedTop);
   }
 
-  const handleSaveSubmit = (e: React.FormEvent) => {
+  const handleSaveSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = favNameInput.trim() || getSuggestedFavoriteName(point);
-    onSaveFavorite?.(trimmed);
-    setIsEditingFav(false);
+    setIsSavingFav(true);
+    setFavSaveError(null);
+    try {
+      const res = await onSaveFavorite?.(trimmed);
+      if (res && typeof res === 'object' && res.success === false) {
+        setFavSaveError(res.message || '保存に失敗しました。');
+      } else {
+        setIsEditingFav(false);
+      }
+    } catch {
+      setFavSaveError('保存処理中にエラーが発生しました。');
+    } finally {
+      setIsSavingFav(false);
+    }
   };
 
   const handleShareClick = () => {
@@ -326,7 +348,7 @@ export const Inspector: React.FC<InspectorProps> = ({
             <span className="text-[11px] opacity-90 truncate">{intensity.label}</span>
           </div>
           <div id="inspector-rain-value" className="font-mono text-base font-bold mt-1 truncate">
-            {rainVal.toFixed(1)} <span className="text-xs font-normal">mm/h</span>
+            {rainVal !== null ? (<>{rainVal.toFixed(1)} <span className="text-xs font-normal">mm/h</span></>) : (<span className="text-sm font-normal text-slate-400">欠測 (-- mm/h)</span>)}
           </div>
         </div>
       </div>
@@ -497,19 +519,40 @@ export const Inspector: React.FC<InspectorProps> = ({
                 </div>
               )}
 
+              {favSaveError && (
+                <div
+                  id="inspector-fav-save-error"
+                  role="alert"
+                  className="text-xs text-rose-300 font-medium bg-rose-500/15 border border-rose-500/40 rounded-lg px-2.5 py-1.5"
+                >
+                  {favSaveError}
+                </div>
+              )}
+
               <div className="flex items-center gap-2">
                 <button
                   type="submit"
                   id="inspector-fav-save-btn"
-                  className="flex-1 inline-flex items-center justify-center gap-1 min-h-[38px] px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm cursor-pointer"
+                  disabled={isSavingFav}
+                  className="flex-1 inline-flex items-center justify-center gap-1 min-h-[38px] px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 font-bold text-sm cursor-pointer"
                 >
-                  <Check className="w-4 h-4" />
-                  <span>保存</span>
+                  {isSavingFav ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>保存中...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-4 h-4" />
+                      <span>保存</span>
+                    </>
+                  )}
                 </button>
                 <button
                   type="button"
                   onClick={() => setIsEditingFav(false)}
-                  className="px-3.5 py-1.5 min-h-[38px] rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-sm cursor-pointer"
+                  disabled={isSavingFav}
+                  className="px-3.5 py-1.5 min-h-[38px] rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-300 font-semibold text-sm cursor-pointer"
                 >
                   キャンセル
                 </button>

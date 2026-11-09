@@ -1,3 +1,4 @@
+import { bounded } from './asyncLifecycle';
 import { HYAKUMEIZAN_PRESETS } from './hyakumeizanData';
 
 export interface OsmPlaceCandidate {
@@ -224,14 +225,14 @@ out center tags 40;
   for (const endpoint of OVERPASS_ENDPOINTS) {
     if (signal?.aborted) break;
     try {
-      const res = await fetch(endpoint, {
+      const res = await fetchWithTimeout(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
         },
         body: `data=${encodeURIComponent(query)}`,
         signal,
-      });
+      }, SEARCH_TIMEOUT_MS, signal);
 
       if (!res.ok) {
         throw new Error(`Overpass API HTTP ${res.status}`);
@@ -326,13 +327,13 @@ async function fetchNominatimCandidates(
   url.searchParams.set('addressdetails', '1');
   url.searchParams.set('accept-language', 'ja');
 
-  const res = await fetch(url.toString(), {
+  const res = await fetchWithTimeout(url.toString(), {
     method: 'GET',
     headers: {
       Accept: 'application/json',
     },
     signal,
-  });
+  }, SEARCH_TIMEOUT_MS, signal);
 
   if (!res.ok) {
     throw new Error(`Nominatim API HTTP ${res.status}`);
@@ -629,7 +630,10 @@ function fetchWithTimeout(
     }
   }
 
-  return fetch(url, { ...init, signal: controller.signal }).finally(() => {
+  return bounded(fetch(url, { ...init, signal: controller.signal }).then(async response => {
+    const body = await response.arrayBuffer();
+    return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
+  }), timeoutMs, controller.signal).finally(() => {
     globalThis.clearTimeout(timer);
     externalSignal?.removeEventListener('abort', onExternalAbort);
   });

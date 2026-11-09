@@ -30,3 +30,14 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+
+# Local test runs and implementation working copies
+/test-results/
+/playwright-report/
+/output/implementation-20261109/baseline/
+/output/implementation-20261109/e2e-update-timing-failure/
+/output/implementation-20261109/unit-*.json
+!/output/implementation-20261109/unit-results.json
+/output/implementation-20261109/e2e-update-diagnostic-first.json
+/output/implementation-20261109/e2e-update-pending-diagnostic.json
+/output/pr-body-*.md
