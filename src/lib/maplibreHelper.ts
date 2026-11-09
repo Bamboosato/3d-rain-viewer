@@ -2,8 +2,16 @@ import maplibregl from 'maplibre-gl';
 import type { BaseMapId, PresetLocation, RendererBackend, WebGPUStatus } from '../types/map';
 import { getAW3DTileGenerator, getJaxaEarth } from './jaxaClient';
 import { HYAKUMEIZAN_PRESETS } from './hyakumeizanData';
+import { fetchTileBytesWithRetry, getTileWithOpfsSWR } from './opfsTileCache';
 
 export const PRESET_LOCATIONS: PresetLocation[] = HYAKUMEIZAN_PRESETS;
+
+const UPSTREAM_RASTER_TEMPLATES: Record<BaseMapId, string> = {
+  osm: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+  hillshade: 'https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png',
+  photo:
+    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+};
 
 export const BASE_MAP_SOURCES: Record<
   BaseMapId,
@@ -12,7 +20,7 @@ export const BASE_MAP_SOURCES: Record<
   osm: {
     name: 'OpenStreetMap（標準）',
     description: '道路・都市名・行政界を含む標準マップ',
-    tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+    tiles: ['opfs-raster://osm/{z}/{x}/{y}'],
     attribution:
       '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors',
     maxzoom: 19,
@@ -20,7 +28,7 @@ export const BASE_MAP_SOURCES: Record<
   hillshade: {
     name: '起伏陰影（地理院淡色＋3D陰影）',
     description: '山岳の尾根・谷筋の立体陰影を強調した地形図',
-    tiles: ['https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png'],
+    tiles: ['opfs-raster://hillshade/{z}/{x}/{y}'],
     attribution:
       '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noreferrer">国土地理院 淡色地図</a>',
     maxzoom: 18,
@@ -28,15 +36,14 @@ export const BASE_MAP_SOURCES: Record<
   photo: {
     name: '航空写真（衛星・オルソ画像）',
     description: '植生・雪渓・火口をリアルに映す高解像度衛星写真',
-    tiles: [
-      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    ],
+    tiles: ['opfs-raster://photo/{z}/{x}/{y}'],
     attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics',
     maxzoom: 18,
   },
 };
 
 let protocolRegistered = false;
+const flatZeroTerrainPngCache = new Map<number, Uint8Array>();
 
 /**
  * WebGPU (navigator.gpu) の対応状況を検出し、可能な限り高パフォーマンスGPUアダプタ・デバイスを要求します。
@@ -101,6 +108,13 @@ async function encodeTerrainRGBPng(
   data: Float32Array | Uint32Array | null,
   tileSize: number
 ): Promise<Uint8Array> {
+  if (!data) {
+    const cachedFlat = flatZeroTerrainPngCache.get(tileSize);
+    if (cachedFlat) {
+      return cachedFlat;
+    }
+  }
+
   const je = await getJaxaEarth();
   const rgba = new Uint8ClampedArray(tileSize * tileSize * 4);
 
@@ -128,20 +142,52 @@ async function encodeTerrainRGBPng(
     }
   }
 
-  return je.image.createPngUint8ArrayByImageDataObject({
+  const pngBytes: Uint8Array = await je.image.createPngUint8ArrayByImageDataObject({
     width: tileSize,
     height: tileSize,
     data: rgba,
   });
+
+  if (!data) {
+    flatZeroTerrainPngCache.set(tileSize, pngBytes);
+  }
+
+  return pngBytes;
 }
 
 /**
- * JAXA Earth API (AW3D30) の 3D Terrain RGB カスタムプロトコル (`jaxa-aw3d://`) を MapLibre に登録します。
+ * JAXA Earth API (AW3D30) の 3D Terrain RGB カスタムプロトコル (`jaxa-aw3d://`) および
+ * OPFS Stale-While-Revalidate 背景地図タイルプロトコル (`opfs-raster://`) を MapLibre に登録します。
  */
 export function registerJaxaTerrainProtocol(tileSize = 256): void {
   if (protocolRegistered) return;
   protocolRegistered = true;
 
+  // 1. 背景地図タイル (OSM / 国土地理院淡色 / Esri航空写真): OPFS Stale-While-Revalidate + 通信リトライ
+  maplibregl.addProtocol('opfs-raster', async (params, abortController) => {
+    const parts = params.url.replace('opfs-raster://', '').split('/');
+    const sourceId = (parts[0] as BaseMapId) || 'osm';
+    const z = parseInt(parts[1], 10);
+    const x = parseInt(parts[2], 10);
+    const y = parseInt(parts[3], 10);
+
+    const template = UPSTREAM_RASTER_TEMPLATES[sourceId] ?? UPSTREAM_RASTER_TEMPLATES.osm;
+    const upstreamUrl = template
+      .replace('{z}', String(z))
+      .replace('{x}', String(x))
+      .replace('{y}', String(y));
+
+    const buffer = await getTileWithOpfsSWR({
+      category: 'raster',
+      key: `${sourceId}_${z}_${x}_${y}`,
+      fetcher: (sig) => fetchTileBytesWithRetry(upstreamUrl, sig),
+      signal: abortController.signal,
+    });
+
+    return { data: buffer };
+  });
+
+  // 2. 3D標高DEMタイル (JAXA AW3D30): OPFS Stale-While-Revalidate
   maplibregl.addProtocol('jaxa-aw3d', async (params, abortController) => {
     const parts = params.url.replace('jaxa-aw3d://', '').split('/');
     const z = parseInt(parts[0], 10);
@@ -149,13 +195,25 @@ export function registerJaxaTerrainProtocol(tileSize = 256): void {
     const y = parseInt(parts[2], 10);
 
     try {
-      const tg = await getAW3DTileGenerator(tileSize);
-      const dataObject = await tg.getDataObject(x, y, z, abortController.signal);
-      const pngBytes = await encodeTerrainRGBPng(dataObject ? dataObject.data : null, tileSize);
-      return { data: pngBytes.buffer };
+      const buffer = await getTileWithOpfsSWR({
+        category: 'terrain',
+        key: `aw3d_${tileSize}_${z}_${x}_${y}`,
+        fetcher: async (sig) => {
+          const tg = await getAW3DTileGenerator(tileSize);
+          const dataObject = await tg.getDataObject(x, y, z, sig);
+          if (!dataObject || !dataObject.data) {
+            throw new Error('No land elevation data for tile');
+          }
+          return encodeTerrainRGBPng(dataObject.data, tileSize);
+        },
+        signal: abortController.signal,
+      });
+      return { data: buffer };
     } catch {
       const emptyPng = await encodeTerrainRGBPng(null, tileSize);
-      return { data: emptyPng.buffer };
+      const copy = new Uint8Array(emptyPng.byteLength);
+      copy.set(emptyPng);
+      return { data: copy.buffer };
     }
   });
 }

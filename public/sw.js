@@ -1,6 +1,6 @@
-const SHELL_CACHE = 'rain3d-shell-v4';
-const RUNTIME_CACHE = 'rain3d-runtime-v4';
-const MAX_RUNTIME_ENTRIES = 160;
+const SHELL_CACHE = 'rain3d-shell-v5';
+const RUNTIME_CACHE = 'rain3d-runtime-v5';
+const MAX_RUNTIME_ENTRIES = 800;
 
 const PRECACHE_URLS = [
   '/',
@@ -93,7 +93,18 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 3. 地図タイル・気象庁ナウキャストタイルのみ対象（nominatim.openstreetmap.org や msearch.gsi.go.jp 等の検索APIは除外）
+  // 3. 気象庁ナウキャストの時刻一覧JSON (targetTimes_*.json) は常に最新を取得 (Network-First)
+  if (url.hostname.includes('jma.go.jp') && url.pathname.endsWith('.json')) {
+    event.respondWith(
+      fetch(request).catch(async () => {
+        const cached = await caches.match(request);
+        return cached || Response.error();
+      })
+    );
+    return;
+  }
+
+  // 4. 地図タイル・気象庁ナウキャスト画像タイル: Stale-While-Revalidate (キャッシュ即時表示 + 裏で最新へ更新)
   const isMapOrWeatherTile =
     url.hostname === 'tile.openstreetmap.org' ||
     url.hostname === 'cyberjapandata.gsi.go.jp' ||
@@ -102,21 +113,20 @@ self.addEventListener('fetch', (event) => {
 
   if (isMapOrWeatherTile) {
     event.respondWith(
-      fetch(request)
-        .then((response) => {
-          if (response && response.status === 200) {
-            const clone = response.clone();
-            caches.open(RUNTIME_CACHE).then((cache) => {
-              cache.put(request, clone);
+      caches.open(RUNTIME_CACHE).then(async (cache) => {
+        const cached = await cache.match(request);
+        const networkPromise = fetch(request)
+          .then((response) => {
+            if (response && response.status === 200) {
+              cache.put(request, response.clone());
               trimCache(RUNTIME_CACHE, MAX_RUNTIME_ENTRIES);
-            });
-          }
-          return response;
-        })
-        .catch(async () => {
-          const cached = await caches.match(request);
-          return cached || Response.error();
-        })
+            }
+            return response;
+          })
+          .catch(() => cached || Response.error());
+
+        return cached || networkPromise;
+      })
     );
   }
 });
