@@ -31,11 +31,24 @@ import {
   fetchJMANowcastRainLayer,
 } from './lib/jmaNowcastClient';
 import {
-  FAVORITE_AREA_GROUP,
   isSameCoordinate,
   loadFavoriteLocations,
+  loadLastBackupAt,
+  requestPersistentStorage,
   saveFavoriteLocations,
+  saveLastBackupAt,
 } from './lib/favoritesStorage';
+import {
+  buildFavoriteLocation,
+  decodeFavoritesPayload,
+  extractFavoritesPayloadFromHash,
+  FavoritesTransferError,
+  takeFavoritesPayloadFromLocation,
+} from './lib/favoritesTransfer';
+import {
+  FavoritesSyncDialog,
+  type PendingFavoritesImport,
+} from './components/FavoritesSyncDialog';
 import {
   buildCustomDomainShareUrl,
   parseUrlViewState,
@@ -119,6 +132,12 @@ export const App: React.FC = () => {
   const [shareToastVersion, setShareToastVersion] = useState<number>(0);
   const [showCreditModal, setShowCreditModal] = useState<boolean>(false);
   const [openTopPanel, setOpenTopPanel] = useState<'preset' | 'layer' | 'share' | null>(null);
+  // お気に入りのバックアップ・引き継ぎダイアログ（null = 非表示）
+  const [favoritesSyncDialog, setFavoritesSyncDialog] = useState<{
+    pendingImport: PendingFavoritesImport | null;
+    error: string | null;
+  } | null>(null);
+  const [lastBackupAt, setLastBackupAt] = useState<string | null>(() => loadLastBackupAt());
   const [isLocating, setIsLocating] = useState<boolean>(false);
   const [installPromptEvent, setInstallPromptEvent] = useState<
     (Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> }) | null
@@ -591,20 +610,20 @@ export const App: React.FC = () => {
       const currentPitch = Math.round(map?.getPitch() ?? 60);
       const currentBearing = Math.round(map?.getBearing() ?? 0);
 
-      const newFav: PresetLocation = {
+      const nowIso = new Date().toISOString();
+      const newFav: PresetLocation = buildFavoriteLocation({
         id: matchedFavorite?.id ?? `fav-${Date.now()}`,
         name: customName,
-        emoji: '⭐',
-        areaGroup: FAVORITE_AREA_GROUP,
-        region: `ズーム${currentZoom.toFixed(1)} · 傾き${currentPitch}°`,
-        elevation: Math.round(inspectedPoint.elevation ?? 0),
-        center: [inspectedPoint.lng, inspectedPoint.lat],
+        lng: inspectedPoint.lng,
+        lat: inspectedPoint.lat,
         zoom: currentZoom,
         pitch: currentPitch,
         bearing: currentBearing,
-        description: `登録時点のカメラ設定（縮尺 ${currentZoom.toFixed(1)} / 傾き ${currentPitch}° / 方角 ${currentBearing}°）を記憶したお気に入り地点です。`,
-        isFavorite: true,
-      };
+        elevation: inspectedPoint.elevation ?? 0,
+        createdAt: matchedFavorite?.createdAt ?? nowIso,
+        updatedAt: nowIso,
+      });
+      requestPersistentStorage();
 
       runViewTransition(() => {
         setFavorites((prev) => {
@@ -632,6 +651,77 @@ export const App: React.FC = () => {
       });
     });
   }, []);
+
+  // バックアップ・引き継ぎ（JSON / 同期URL）からの取り込み結果、または元に戻す操作を反映
+  const handleApplyFavorites = useCallback((next: PresetLocation[]) => {
+    saveFavoriteLocations(next);
+    setFavorites(next);
+    if (next.length > 0) requestPersistentStorage();
+  }, []);
+
+  const handleBackupExported = useCallback((iso: string) => {
+    saveLastBackupAt(iso);
+    setLastBackupAt(iso);
+  }, []);
+
+  const handleOpenFavoritesSync = useCallback(() => {
+    runViewTransition(() => {
+      setOpenTopPanel(null);
+      setFavoritesSyncDialog({ pendingImport: null, error: null });
+    });
+  }, []);
+
+  const handleCloseFavoritesSync = useCallback(() => {
+    setFavoritesSyncDialog(null);
+  }, []);
+
+  // 同期URL（#fav=...）のペイロードを展開し、取り込み確認ダイアログを表示
+  const openFavoritesImportFromPayload = useCallback(async (payload: string) => {
+    try {
+      const items = await decodeFavoritesPayload(payload);
+      setOpenTopPanel(null);
+      setFavoritesSyncDialog({
+        pendingImport: { items, sourceLabel: '同期URL' },
+        error: null,
+      });
+    } catch (err) {
+      setFavoritesSyncDialog({
+        pendingImport: null,
+        error:
+          err instanceof FavoritesTransferError
+            ? err.message
+            : '同期URLを読み込めませんでした。',
+      });
+    }
+  }, []);
+
+  // 起動時・ハッシュ変更時に同期URLを検出（ハッシュはすぐ消去してリロード時の再取り込みを防止）
+  const initialFavHashHandledRef = useRef(false);
+  useEffect(() => {
+    if (!initialFavHashHandledRef.current) {
+      initialFavHashHandledRef.current = true;
+      const payload = takeFavoritesPayloadFromLocation();
+      if (payload) void openFavoritesImportFromPayload(payload);
+    }
+    const handleHashChange = () => {
+      const payload = takeFavoritesPayloadFromLocation();
+      if (payload) void openFavoritesImportFromPayload(payload);
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, [openFavoritesImportFromPayload]);
+
+  // 最終バックアップから30日以上経過し、その後にお気に入りが更新されている場合はバックアップを推奨
+  const backupRecommended = useMemo(() => {
+    if (favorites.length === 0) return false;
+    const lastMs = lastBackupAt ? Date.parse(lastBackupAt) : 0;
+    if (!lastMs) return true;
+    const latestUpdate = favorites.reduce(
+      (max, f) => Math.max(max, f.updatedAt ? Date.parse(f.updatedAt) || 0 : 0),
+      0
+    );
+    return Date.now() - lastMs > 30 * 24 * 60 * 60 * 1000 && latestUpdate > lastMs;
+  }, [favorites, lastBackupAt]);
 
   // 地点インスペクターからの地点名付きURL共有
   const handleShareInspectorPoint = useCallback(
@@ -871,6 +961,11 @@ export const App: React.FC = () => {
       if (!launchParams?.targetURL) return;
       try {
         const parsedUrl = new URL(launchParams.targetURL);
+        const favPayload = extractFavoritesPayloadFromHash(parsedUrl.hash);
+        if (favPayload) {
+          void openFavoritesImportFromPayload(favPayload);
+          return;
+        }
         if (!parsedUrl.search) return;
         const urlState = parseUrlViewState(parsedUrl.search);
         if (urlState) {
@@ -880,7 +975,7 @@ export const App: React.FC = () => {
         console.warn('Failed to apply launchQueue targetURL:', err);
       }
     });
-  }, [handleImportUrlState]);
+  }, [handleImportUrlState, openFavoritesImportFromPayload]);
 
   // モーダル・上部パネルオープン時の Escape キー対応 (a11y-debugging 準拠)
   useEffect(() => {
@@ -964,6 +1059,8 @@ export const App: React.FC = () => {
             onSelectPreset={handleSelectPreset}
             onRemoveFavorite={handleRemoveFavorite}
             onShareFavorite={handleShareFavorite}
+            onOpenFavoritesSync={handleOpenFavoritesSync}
+            backupRecommended={backupRecommended}
             isOpen={openTopPanel === 'preset'}
             onToggleOpen={() =>
               runViewTransition(() =>
@@ -1093,6 +1190,19 @@ export const App: React.FC = () => {
           cachedCount={cachedCount}
         />
       </div>
+
+      {/* お気に入りのバックアップ・引き継ぎダイアログ */}
+      {favoritesSyncDialog && (
+        <FavoritesSyncDialog
+          favorites={favorites}
+          onApplyFavorites={handleApplyFavorites}
+          onClose={handleCloseFavoritesSync}
+          initialImport={favoritesSyncDialog.pendingImport}
+          initialError={favoritesSyncDialog.error}
+          lastBackupAt={lastBackupAt}
+          onBackupExported={handleBackupExported}
+        />
+      )}
 
       {/* データソース・ライセンス情報モーダル */}
       {showCreditModal && (

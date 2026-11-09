@@ -30,6 +30,10 @@ export interface PresetLocation {
   bearing: number;
   description: string;
   isFavorite?: boolean;
+  /** お気に入り登録日時（ISO 8601）。旧データには存在しない場合がある */
+  createdAt?: string;
+  /** お気に入り最終更新日時（ISO 8601）。取り込み時のマージで新しい方を優先する判定に使用 */
+  updatedAt?: string;
 }
 
 export interface InspectorPoint {
