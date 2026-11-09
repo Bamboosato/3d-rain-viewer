@@ -957,6 +957,10 @@ export const App: React.FC = () => {
             favorites={favorites}
             activePreset={activePreset}
             activePresetRain={activePresetRain}
+            referenceLocation={{
+              lat: cameraViewRef.current.lat,
+              lng: cameraViewRef.current.lng,
+            }}
             onSelectPreset={handleSelectPreset}
             onRemoveFavorite={handleRemoveFavorite}
             onShareFavorite={handleShareFavorite}

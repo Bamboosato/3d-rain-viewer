@@ -16,8 +16,11 @@ import {
 import type { PresetLocation } from '../types/map';
 import { AREA_GROUPS } from '../lib/hyakumeizanData';
 import {
+  calcDistanceMeters,
+  formatDistanceLabel,
   searchOsmLocationsByKeyword,
   type OsmSearchLocation,
+  type SearchReferenceLocation,
 } from '../lib/osmPlaceClient';
 import { runViewTransition } from '../lib/viewTransition';
 
@@ -28,6 +31,7 @@ interface PresetNavProps {
   favorites?: PresetLocation[];
   activePreset: PresetLocation;
   activePresetRain?: number | null;
+  referenceLocation?: SearchReferenceLocation;
   onSelectPreset: (preset: PresetLocation) => void;
   onRemoveFavorite?: (id: string) => void;
   onShareFavorite?: (preset: PresetLocation) => void;
@@ -39,6 +43,7 @@ export const PresetNav: React.FC<PresetNavProps> = ({
   presets,
   favorites = [],
   activePreset,
+  referenceLocation,
   onSelectPreset,
   onRemoveFavorite,
   onShareFavorite,
@@ -64,6 +69,7 @@ export const PresetNav: React.FC<PresetNavProps> = ({
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searchRenderVersion, setSearchRenderVersion] = useState<number>(0);
   const [copiedFavoriteId, setCopiedFavoriteId] = useState<string | null>(null);
+  const [gpsLocation, setGpsLocation] = useState<SearchReferenceLocation | null>(null);
   const searchAbortRef = useRef<AbortController | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
@@ -74,6 +80,39 @@ export const PresetNav: React.FC<PresetNavProps> = ({
       searchAbortRef.current?.abort();
     };
   }, []);
+
+  // GPS現在地の取得（許可されている場合は距離順ソートの第1優先基準位置として使用）
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'search') return;
+    if (typeof navigator === 'undefined' || !navigator.geolocation) return;
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setGpsLocation({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+        });
+      },
+      () => {
+        // 位置情報未許可時は地図中心座標へフォールバック
+      },
+      {
+        enableHighAccuracy: false,
+        timeout: 4000,
+        maximumAge: 600000,
+      }
+    );
+  }, [isOpen, activeTab]);
+
+  // 距離計算の基準位置（第1優先: GPS現在地 / 第2優先: 現在の地図中心または選択中プリセット座標）
+  const effectiveRefLocation = useMemo<SearchReferenceLocation>(() => {
+    if (gpsLocation) return gpsLocation;
+    if (referenceLocation) return referenceLocation;
+    return {
+      lat: activePreset.center[1],
+      lng: activePreset.center[0],
+    };
+  }, [gpsLocation, referenceLocation, activePreset.center]);
 
   // 非同期検索完了時にDOM再構築とブラウザの再描画（リフロー）を即時確定させるヘルパー
   const commitSearchUiUpdate = useCallback((updater: () => void) => {
@@ -142,12 +181,13 @@ export const PresetNav: React.FC<PresetNavProps> = ({
     });
   }, [areaFilteredPresets, selectedPrefecture]);
 
-  // 「🔍 検索」タブ用：確定された検索語でお気に入り＋百名山から一致抽出（最大6件）
+  // 「🔍 検索」タブ用：お気に入り優先 ➔ 名前の一致度 ➔ 現在位置から近い順 で最大6件抽出
   const localMatchedPresets = useMemo(() => {
     const q = submittedQuery.trim().toLowerCase();
     if (!q) return [];
     const allLocal = [...favorites, ...presets];
-    return allLocal
+
+    const matched = allLocal
       .filter((p) => {
         const matchName = p.name.toLowerCase().includes(q);
         const matchKana = (p.kana ?? '').toLowerCase().includes(q);
@@ -155,8 +195,37 @@ export const PresetNav: React.FC<PresetNavProps> = ({
         const matchArea = (p.areaGroup ?? '').toLowerCase().includes(q);
         return matchName || matchKana || matchRegion || matchArea;
       })
-      .slice(0, 6);
-  }, [favorites, presets, submittedQuery]);
+      .map((p) => {
+        const lowerName = p.name.toLowerCase();
+        const lowerKana = (p.kana ?? '').toLowerCase();
+        const matchTier =
+          lowerName === q || lowerKana === q
+            ? 1
+            : lowerName.startsWith(q) || lowerKana.startsWith(q)
+              ? 2
+              : 3;
+        const distanceMeters = calcDistanceMeters(
+          effectiveRefLocation.lat,
+          effectiveRefLocation.lng,
+          p.center[1],
+          p.center[0]
+        );
+        return {
+          preset: p,
+          favRank: p.isFavorite ? 0 : 1,
+          matchTier,
+          distanceMeters,
+        };
+      });
+
+    matched.sort((a, b) => {
+      if (a.favRank !== b.favRank) return a.favRank - b.favRank;
+      if (a.matchTier !== b.matchTier) return a.matchTier - b.matchTier;
+      return a.distanceMeters - b.distanceMeters;
+    });
+
+    return matched.slice(0, 6);
+  }, [favorites, presets, submittedQuery, effectiveRefLocation]);
 
   // 検索ボタン押下（またはEnterキー）で 国土地理院 + OpenStreetMap (Nominatim) 検索を実行
   const executeSearch = useCallback(
@@ -192,14 +261,19 @@ export const PresetNav: React.FC<PresetNavProps> = ({
         setIsSearchingOsm(true);
       });
 
-      searchOsmLocationsByKeyword(trimmed, controller.signal, (partialItems) => {
-        if (!controller.signal.aborted && partialItems.length > 0) {
-          commitSearchUiUpdate(() => {
-            setOsmResults(partialItems);
-            setIsSearchingOsm(false);
-          });
-        }
-      })
+      searchOsmLocationsByKeyword(
+        trimmed,
+        controller.signal,
+        (partialItems) => {
+          if (!controller.signal.aborted && partialItems.length > 0) {
+            commitSearchUiUpdate(() => {
+              setOsmResults(partialItems);
+              setIsSearchingOsm(false);
+            });
+          }
+        },
+        effectiveRefLocation
+      )
         .then((items) => {
           if (!controller.signal.aborted) {
             commitSearchUiUpdate(() => {
@@ -219,7 +293,7 @@ export const PresetNav: React.FC<PresetNavProps> = ({
           }
         });
     },
-    [searchQuery, commitSearchUiUpdate]
+    [searchQuery, commitSearchUiUpdate, effectiveRefLocation]
   );
 
   const handleClearSearch = useCallback(() => {
@@ -640,11 +714,11 @@ export const PresetNav: React.FC<PresetNavProps> = ({
                 {/* 1. ローカル一致（お気に入り・日本百名山） */}
                 {localMatchedPresets.length > 0 && (
                   <div className="space-y-1.5">
-                    <div className="text-xs font-semibold text-sky-300 px-0.5">
-                      百名山・お気に入り ({localMatchedPresets.length}件)
+                    <div className="text-xs font-semibold text-sky-300 px-0.5 truncate">
+                      百名山・お気に入り ({localMatchedPresets.length}件 · 近い順)
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                      {localMatchedPresets.map((preset) => (
+                      {localMatchedPresets.map(({ preset, distanceMeters }) => (
                         <button
                           key={preset.id}
                           type="button"
@@ -652,13 +726,20 @@ export const PresetNav: React.FC<PresetNavProps> = ({
                             setInternalIsOpen(false);
                             onSelectPreset(preset);
                           }}
-                          className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-slate-800/60 hover:bg-slate-800 border border-slate-700/80 text-left transition-colors cursor-pointer"
+                          className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-slate-800/60 hover:bg-slate-800 border border-slate-700/80 text-left transition-colors cursor-pointer min-w-0 overflow-hidden"
                         >
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-sm shrink-0">{preset.emoji}</span>
-                              <span className="text-xs font-bold text-white truncate">
-                                {preset.name}
+                          <div className="min-w-0 flex-1 overflow-hidden">
+                            <div className="flex items-center justify-between gap-1.5 min-w-0">
+                              <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
+                                <span className="text-sm leading-none shrink-0">
+                                  {preset.emoji}
+                                </span>
+                                <span className="text-xs font-bold text-white truncate min-w-0">
+                                  {preset.name}
+                                </span>
+                              </div>
+                              <span className="text-[10px] font-mono text-sky-300/90 whitespace-nowrap shrink-0">
+                                {formatDistanceLabel(distanceMeters)}
                               </span>
                             </div>
                             <div className="text-[11px] text-slate-400 truncate mt-0.5">
@@ -676,9 +757,9 @@ export const PresetNav: React.FC<PresetNavProps> = ({
                 {/* 2. OpenStreetMap 全国スポット検索結果 */}
                 {(submittedQuery.length > 0 || isSearchingOsm) && (
                   <div className="space-y-1.5">
-                    <div className="flex items-center justify-between text-xs font-semibold text-emerald-300 px-0.5">
-                      <span className="truncate">
-                        「{submittedQuery}」の検索結果 (OpenStreetMap)
+                    <div className="flex items-center justify-between gap-2 text-xs font-semibold text-emerald-300 px-0.5 min-w-0">
+                      <span className="truncate min-w-0">
+                        「{submittedQuery}」の検索結果（一致・近い順）
                       </span>
                       {isSearchingOsm && (
                         <span className="text-[11px] text-slate-400 font-normal shrink-0">
@@ -698,17 +779,28 @@ export const PresetNav: React.FC<PresetNavProps> = ({
                             key={item.id}
                             type="button"
                             onClick={() => handleSelectOsmLocation(item)}
-                            className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-slate-950/80 hover:bg-slate-800 border border-slate-800 hover:border-emerald-500/40 text-left transition-colors cursor-pointer"
+                            className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-slate-950/80 hover:bg-slate-800 border border-slate-800 hover:border-emerald-500/40 text-left transition-colors cursor-pointer min-w-0 overflow-hidden"
                           >
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-sm shrink-0">{item.emoji}</span>
-                                <span className="text-xs font-bold text-white truncate">
-                                  {item.name}
-                                </span>
-                                <span className="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] text-emerald-300 shrink-0">
-                                  {item.category}
-                                </span>
+                            <div className="min-w-0 flex-1 overflow-hidden">
+                              <div className="flex items-center justify-between gap-1.5 min-w-0">
+                                <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
+                                  <span className="text-sm leading-none shrink-0">
+                                    {item.emoji}
+                                  </span>
+                                  <span className="text-xs font-bold text-white truncate min-w-0">
+                                    {item.name}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <span className="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] text-emerald-300 whitespace-nowrap shrink-0">
+                                    {item.category}
+                                  </span>
+                                  {item.distanceMeters !== undefined && (
+                                    <span className="text-[10px] font-mono text-slate-300 whitespace-nowrap shrink-0">
+                                      {formatDistanceLabel(item.distanceMeters)}
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                               <div className="text-[11px] text-slate-400 truncate mt-0.5">
                                 {item.subLabel}

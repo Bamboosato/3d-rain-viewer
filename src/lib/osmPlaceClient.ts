@@ -28,7 +28,7 @@ const OVERPASS_ENDPOINTS = [
 /**
  * 2点間の経緯度から概算距離（メートル）を算出（Haversine公式）
  */
-function calcDistanceMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
+export function calcDistanceMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371000;
   const toRad = (deg: number) => (deg * Math.PI) / 180;
   const dLat = toRad(lat2 - lat1);
@@ -38,6 +38,21 @@ function calcDistanceMeters(lat1: number, lng1: number, lat2: number, lng2: numb
     Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return Math.round(R * c);
+}
+
+/**
+ * 距離（メートル）をリスト表示用のコンパクトな文字列（例: '650m', '4.2km', '24km'）に整形
+ */
+export function formatDistanceLabel(meters?: number): string {
+  if (meters === undefined || !Number.isFinite(meters) || meters < 0) return '';
+  if (meters < 1000) {
+    return `${Math.max(10, Math.round(meters / 10) * 10)}m`;
+  }
+  const km = meters / 1000;
+  if (km < 10) {
+    return `${km.toFixed(1)}km`;
+  }
+  return `${Math.round(km).toLocaleString()}km`;
 }
 
 /**
@@ -558,6 +573,13 @@ export interface OsmSearchLocation {
   lat: number;
   lng: number;
   recommendedZoom: number;
+  /** 基準位置（GPS現在地または表示中の地図中心）からの直線距離（メートル） */
+  distanceMeters?: number;
+}
+
+export interface SearchReferenceLocation {
+  lat: number;
+  lng: number;
 }
 
 interface NominatimSearchItem {
@@ -586,7 +608,7 @@ interface GsiAddressSearchItem {
 const NOMINATIM_SEARCH_URL = 'https://nominatim.openstreetmap.org/search';
 const GSI_SEARCH_URL = 'https://msearch.gsi.go.jp/address-search/AddressSearch';
 const SEARCH_TIMEOUT_MS = 4500;
-const searchResultCache = new Map<string, { items: OsmSearchLocation[]; timestamp: number }>();
+const searchResultCache = new Map<string, { pool: OsmSearchLocation[]; timestamp: number }>();
 
 function fetchWithTimeout(
   url: string,
@@ -801,7 +823,8 @@ async function fetchGsiSearchLocations(
       recommendedZoom: meta.zoom,
     });
 
-    if (results.length >= 6) break;
+    // 全国の同名山岳・施設を距離順ソートできるよう、GSIからは最大60件までプールに収集
+    if (results.length >= 60) break;
   }
 
   return results;
@@ -816,7 +839,7 @@ async function fetchNominatimSearchLocations(
   url.searchParams.set('q', trimmed);
   url.searchParams.set('countrycodes', 'jp');
   url.searchParams.set('addressdetails', '1');
-  url.searchParams.set('limit', '10');
+  url.searchParams.set('limit', '15');
   url.searchParams.set('accept-language', 'ja');
 
   const res = await fetchWithTimeout(
@@ -869,47 +892,125 @@ async function fetchNominatimSearchLocations(
       recommendedZoom: meta.zoom,
     });
 
-    if (results.length >= 8) break;
+    if (results.length >= 15) break;
   }
 
   return results;
 }
 
-function mergeSearchLocations(
+const GENERAL_ADMIN_CATEGORIES = new Set(['自治体', '地名']);
+
+function isLandmarkCategory(category: string): boolean {
+  return !GENERAL_ADMIN_CATEGORIES.has(category);
+}
+
+/**
+ * 検索結果の優先度グループ（1〜4: 小さいほど上位）を判定
+ * - 第1優先 (1.0〜1.2): 名前が完全一致するスポット（山岳・施設等のランドマークを1.0、自治体・地名を1.2）
+ * - 第2優先 (2.0): 名前が前方一致するランドマーク（⛰️山岳 / 🛖山小屋 / ⛺キャンプ場 / 🚉駅 / 📍観光・施設 等）
+ * - 第3優先 (3.0): 名前が部分一致するランドマーク
+ * - 第4優先 (4.0〜4.5): 自治体・一般地名・住所（前方一致 4.0 / 部分一致 4.5）
+ */
+function computeSearchPriorityTier(item: OsmSearchLocation, rawQuery: string): number {
+  const q = rawQuery.trim().toLowerCase();
+  const name = item.name.trim().toLowerCase();
+  const isLandmark = isLandmarkCategory(item.category);
+
+  if (name === q) {
+    return isLandmark ? 1.0 : 1.2;
+  }
+  if (isLandmark && name.startsWith(q)) {
+    return 2.0;
+  }
+  if (isLandmark) {
+    return 3.0;
+  }
+  return name.startsWith(q) ? 4.0 : 4.5;
+}
+
+function buildDeduplicatedPool(
   gsiItems: OsmSearchLocation[],
   nominatimItems: OsmSearchLocation[]
 ): OsmSearchLocation[] {
   const merged: OsmSearchLocation[] = [];
 
   const addIfUnique = (item: OsmSearchLocation) => {
-    const exists = merged.some(
+    const existingIdx = merged.findIndex(
       (m) =>
         calcDistanceMeters(item.lat, item.lng, m.lat, m.lng) < 500 &&
         (m.name === item.name || m.name.includes(item.name) || item.name.includes(m.name))
     );
-    if (!exists) {
+    if (existingIdx === -1) {
       merged.push(item);
+    } else {
+      // 既存の候補が汎用カテゴリ（「地名・スポット」「地名」）で、新しい候補が具体的なカテゴリ（「山岳」「山小屋」「駅」等）なら置き換える
+      const existing = merged[existingIdx];
+      if (
+        (existing.category === '地名・スポット' || existing.category === '地名') &&
+        item.category !== '地名・スポット' &&
+        item.category !== '地名'
+      ) {
+        merged[existingIdx] = item;
+      }
     }
   };
 
-  for (const item of gsiItems) {
-    addIfUnique(item);
-  }
+  // カテゴリ情報の詳細なNominatim候補を先に登録し、続けて国土地理院候補をマージ
   for (const item of nominatimItems) {
     addIfUnique(item);
   }
+  for (const item of gsiItems) {
+    addIfUnique(item);
+  }
 
-  return merged.slice(0, 10);
+  return merged;
+}
+
+function sortAndSliceSearchPool(
+  pool: OsmSearchLocation[],
+  query: string,
+  refLocation?: SearchReferenceLocation
+): OsmSearchLocation[] {
+  const scored = pool.map((item, originalIndex) => {
+    const distanceMeters =
+      refLocation && Number.isFinite(refLocation.lat) && Number.isFinite(refLocation.lng)
+        ? calcDistanceMeters(refLocation.lat, refLocation.lng, item.lat, item.lng)
+        : undefined;
+    const priorityTier = computeSearchPriorityTier(item, query);
+
+    return {
+      item: {
+        ...item,
+        distanceMeters,
+      },
+      priorityTier,
+      distanceMeters: distanceMeters ?? Number.MAX_SAFE_INTEGER,
+      originalIndex,
+    };
+  });
+
+  scored.sort((a, b) => {
+    if (a.priorityTier !== b.priorityTier) {
+      return a.priorityTier - b.priorityTier;
+    }
+    if (a.distanceMeters !== b.distanceMeters) {
+      return a.distanceMeters - b.distanceMeters;
+    }
+    return a.originalIndex - b.originalIndex;
+  });
+
+  return scored.slice(0, 12).map((s) => s.item);
 }
 
 /**
  * キーワードから 国土地理院 地名検索API（国内高速）および OpenStreetMap (Nominatim Search API) を並列検索し、
- * 先に返ってきた候補を `onPartialUpdate` で即時反映して待ち時間を解消します。
+ * 「一致度 × カテゴリ優先度 × 現在位置からの距離が近い順」にソートして返却します。
  */
 export async function searchOsmLocationsByKeyword(
   query: string,
   signal?: AbortSignal,
-  onPartialUpdate?: (items: OsmSearchLocation[]) => void
+  onPartialUpdate?: (items: OsmSearchLocation[]) => void,
+  refLocation?: SearchReferenceLocation
 ): Promise<OsmSearchLocation[]> {
   const trimmed = query.trim();
   if (!trimmed) return [];
@@ -917,8 +1018,9 @@ export async function searchOsmLocationsByKeyword(
   const cacheKey = trimmed.toLowerCase();
   const cached = searchResultCache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
-    onPartialUpdate?.(cached.items);
-    return cached.items;
+    const sortedCached = sortAndSliceSearchPool(cached.pool, trimmed, refLocation);
+    onPartialUpdate?.(sortedCached);
+    return sortedCached;
   }
 
   let nominatimList: OsmSearchLocation[] = [];
@@ -926,13 +1028,14 @@ export async function searchOsmLocationsByKeyword(
 
   const notifyPartial = () => {
     if (signal?.aborted) return;
-    const current = mergeSearchLocations(gsiList, nominatimList);
-    if (current.length > 0) {
+    const pool = buildDeduplicatedPool(gsiList, nominatimList);
+    if (pool.length > 0) {
       searchResultCache.set(cacheKey, {
-        items: current,
+        pool,
         timestamp: Date.now(),
       });
-      onPartialUpdate?.(current);
+      const sorted = sortAndSliceSearchPool(pool, trimmed, refLocation);
+      onPartialUpdate?.(sorted);
     }
   };
 
@@ -958,15 +1061,15 @@ export async function searchOsmLocationsByKeyword(
     return [];
   }
 
-  const finalResults = mergeSearchLocations(gsiList, nominatimList);
-  if (finalResults.length > 0) {
+  const finalPool = buildDeduplicatedPool(gsiList, nominatimList);
+  if (finalPool.length > 0) {
     searchResultCache.set(cacheKey, {
-      items: finalResults,
+      pool: finalPool,
       timestamp: Date.now(),
     });
   }
 
-  return finalResults;
+  return sortAndSliceSearchPool(finalPool, trimmed, refLocation);
 }
 
 
