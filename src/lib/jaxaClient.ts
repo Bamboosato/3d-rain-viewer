@@ -1,3 +1,5 @@
+import { bounded } from './asyncLifecycle';
+import { safeGetLocalStorage } from './favoritesStorage';
 import type {
   Bbox,
   ColorMapObject,
@@ -8,6 +10,7 @@ import type {
   TileGenerator,
 } from '../types/jaxa';
 import type { RainSourceId } from '../types/map';
+import type { DataState } from '../types/status';
 import { inspectJMAPrecipitation } from './jmaNowcastClient';
 import * as localJaxaEarth from './jaxa.earth.esm.js';
 
@@ -23,21 +26,22 @@ export const GSMAP_COLLECTION_URL =
 /** 日本列島および周辺海域（屋久島〜利尻島・知床）をカバーするBBox [西経, 南緯, 東経, 北緯] */
 export const JAPAN_RAIN_BBOX: Bbox = [126.0, 28.0, 146.0, 46.0];
 
-/** MapLibre ImageSource 用の4隅座標 [左上, 右上, 右下, 左下] */
+/** MapLibre ImageSource 用の座標バインド [左上, 右上, 右下, 左下] */
 export const JAPAN_RAIN_COORDINATES: [
   [number, number],
   [number, number],
   [number, number],
-  [number, number]
+  [number, number],
 ] = [
-  [JAPAN_RAIN_BBOX[0], JAPAN_RAIN_BBOX[3]], // Top-Left (West, North)
-  [JAPAN_RAIN_BBOX[2], JAPAN_RAIN_BBOX[3]], // Top-Right (East, North)
-  [JAPAN_RAIN_BBOX[2], JAPAN_RAIN_BBOX[1]], // Bottom-Right (East, South)
-  [JAPAN_RAIN_BBOX[0], JAPAN_RAIN_BBOX[1]], // Bottom-Left (West, South)
+  [JAPAN_RAIN_BBOX[0], JAPAN_RAIN_BBOX[3]], // Top-Left: [126.0, 46.0]
+  [JAPAN_RAIN_BBOX[2], JAPAN_RAIN_BBOX[3]], // Top-Right: [146.0, 46.0]
+  [JAPAN_RAIN_BBOX[2], JAPAN_RAIN_BBOX[1]], // Bottom-Right: [146.0, 28.0]
+  [JAPAN_RAIN_BBOX[0], JAPAN_RAIN_BBOX[1]], // Bottom-Left: [126.0, 28.0]
 ];
 
+let readyJaxaModule = localJaxaEarth as unknown as JaxaEarthModule;
 let jaxaModulePromise: Promise<JaxaEarthModule> | null = null;
-let aw3dTileGeneratorPromise: Promise<TileGenerator> | null = null;
+const aw3dTileGenerators = new Map<number, Promise<TileGenerator>>();
 let gsmapCollectionPromise: Promise<ImageCollection> | null = null;
 let currentRainInspector: Inspector | null = null;
 let currentJmaGrid: Uint16Array | undefined = undefined;
@@ -47,14 +51,16 @@ let currentElevationInspector: Inspector | null = null;
 
 /**
  * JAXA Earth API for JavaScript (v2.0.1 ESM) をロードして返します。
- * 公式CDN URLからの動的ESMインポートを試み、オフラインやCORS制限時はローカルバンドルへフォールバックします。
+ * 外部動的importが初期表示を無期限に妨げないようタイムアウト（1500ms）を設け、
+ * オフライン・遅延時は同梱のローカルバンドルへ即時フォールバックします (FIX-12)。
  */
 export async function getJaxaEarth(): Promise<JaxaEarthModule> {
   if (!jaxaModulePromise) {
     jaxaModulePromise = (async () => {
       try {
-        const remoteMod = await import(/* @vite-ignore */ JAXA_EARTH_ESM_URL);
-        return remoteMod as unknown as JaxaEarthModule;
+        const remoteMod = await bounded(import(/* @vite-ignore */ JAXA_EARTH_ESM_URL), 1500) as unknown as JaxaEarthModule;
+        readyJaxaModule = remoteMod;
+        return remoteMod;
       } catch {
         return localJaxaEarth as unknown as JaxaEarthModule;
       }
@@ -65,51 +71,38 @@ export async function getJaxaEarth(): Promise<JaxaEarthModule> {
 
 /**
  * GSMaP Hourly の ImageCollection シングルトンを初期化して返します。
+ * 初期化失敗時はシングルトンPromiseを破棄し、次回再試行可能にします (FIX-04)。
  */
 export async function getGSMaPImageCollection(): Promise<ImageCollection> {
   if (!gsmapCollectionPromise) {
-    gsmapCollectionPromise = (async () => {
+    const pending = (async () => {
       const je = await getJaxaEarth();
       const ic = new je.ImageCollection({ collectionUrl: GSMAP_COLLECTION_URL });
-      await ic.init();
+      await bounded(ic.init(), 10000);
       return ic;
     })();
+    gsmapCollectionPromise = pending;
+    void pending.catch(() => { if (gsmapCollectionPromise === pending) gsmapCollectionPromise = null; });
   }
   return gsmapCollectionPromise;
 }
 
 /**
  * AW3D30 (全球30m標高DSM) の TileGenerator を初期化して返します。
+ * 失敗時は再初期化可能にします (FIX-04)。
  */
 export async function getAW3DTileGenerator(tileSize = 256): Promise<TileGenerator> {
-  if (aw3dTileGeneratorPromise) {
-    try {
-      const tg = await aw3dTileGeneratorPromise;
-      if (tg) {
-        if ((tg as any).aborted) {
-          (tg as any).aborted = false;
-        }
-        return tg;
-      }
-    } catch {
-      aw3dTileGeneratorPromise = null;
-    }
+  if (!aw3dTileGenerators.has(tileSize)) {
+    const pending = (async () => {
+      const je = await getJaxaEarth();
+      const tg = new je.TileGenerator({ collectionUrl: AW3D30_COLLECTION_URL, band: 'DSM', tileSize, delay: 0 });
+      await bounded(tg.init(), 10000);
+      return tg;
+    })();
+    aw3dTileGenerators.set(tileSize, pending);
+    void pending.catch(() => { if (aw3dTileGenerators.get(tileSize) === pending) aw3dTileGenerators.delete(tileSize); });
   }
-
-  aw3dTileGeneratorPromise = (async () => {
-    const je = await getJaxaEarth();
-    const tg = new je.TileGenerator({
-      collectionUrl: AW3D30_COLLECTION_URL,
-      band: 'DSM',
-      tileSize,
-      // iOS Safari でドラッグ・パン中に setInterval がサスペンドしてタイル詰まりを起こすのを防ぐため 0ms（即時）に最適化
-      delay: 0,
-    });
-    await tg.init();
-    return tg;
-  })();
-
-  return aw3dTileGeneratorPromise;
+  return aw3dTileGenerators.get(tileSize)!;
 }
 
 /**
@@ -118,18 +111,18 @@ export async function getAW3DTileGenerator(tileSize = 256): Promise<TileGenerato
 export async function preloadCentralMountainElevation(): Promise<void> {
   try {
     const je = await getJaxaEarth();
-    const dataObj = await je.getDataObject({
+    const dataObj = await bounded(je.getDataObject({
       collectionUrl: AW3D30_COLLECTION_URL,
       band: 'DSM',
       bbox: [130.0, 31.0, 141.0, 38.0],
       width: 660,
       height: 420,
       resampling: je.Resampling.BILINEAR,
-    });
+    }), 15000);
     currentElevationDataCache = dataObj;
     currentElevationInspector = new je.data.Inspector(dataObj);
   } catch (err) {
-    console.warn('AW3D elevation preload skipped:', err);
+    // Optional preload failure never changes the active rain result.
   }
 }
 
@@ -143,6 +136,10 @@ export interface GSMaPRainLayerResult {
   dataObject?: DataObject;
   sourceType?: RainSourceId;
   jmaGrid?: Uint16Array;
+  status?: DataState;
+  missingTilesCount?: number;
+  totalTilesCount?: number;
+  key?: string;
 }
 
 /**
@@ -213,17 +210,32 @@ export interface GSMaPTimelineCatalog {
   dates: Date[];
   latestDate: Date;
   defaultDisplayDate: Date;
+  isStale?: boolean;
+  savedAt?: string;
 }
 
 /**
  * GSMaP Hourly カタログから最新観測日時と過去24時間の毎時リスト（最大25フレーム）を取得します。
  */
-export async function fetchGSMaPTimelineCatalog(): Promise<GSMaPTimelineCatalog> {
+let catalogInFlight: Promise<GSMaPTimelineCatalog> | null = null;
+export function fetchGSMaPTimelineCatalog(refresh = false): Promise<GSMaPTimelineCatalog> {
+  if (!catalogInFlight) {
+    const pending = loadGSMaPTimelineCatalog(refresh);
+    catalogInFlight = pending;
+    void pending.finally(() => { if (catalogInFlight === pending) catalogInFlight = null; }).catch(() => {});
+  }
+  return catalogInFlight;
+}
+async function loadGSMaPTimelineCatalog(refresh = false): Promise<GSMaPTimelineCatalog> {
+  if (refresh) gsmapCollectionPromise = null;
+  try {
   const ic = await getGSMaPImageCollection();
 
   const latestDate = ic.last();
   const startWindow = new Date(latestDate.getTime() - 24 * 60 * 60 * 1000);
-  let dates = await ic.getDateAll(startWindow, new Date(latestDate.getTime() + 3600 * 1000));
+  let dates = await bounded(ic.getDateAll(startWindow, new Date(latestDate.getTime() + 3600 * 1000)), 10000);
+  if (!Number.isFinite(latestDate.getTime())) throw new Error("Invalid catalog date");
+  dates = dates.filter(d => Number.isFinite(d.getTime())).sort((a,b) => a.getTime()-b.getTime());
 
   if (!dates || dates.length === 0) {
     dates = [latestDate];
@@ -231,39 +243,50 @@ export async function fetchGSMaPTimelineCatalog(): Promise<GSMaPTimelineCatalog>
     dates = dates.slice(-25);
   }
 
-  // 最新24時間窓の中で山岳域（富士山・北アルプス）に降水帯が通過している時刻があれば初期フレームに設定
   const activeRainTarget = dates.find(
     (d) => d.getUTCHours() === 6 || d.getUTCHours() === 5
   );
   const defaultDisplayDate = activeRainTarget ?? dates[dates.length - 1];
 
-  return {
-    dates,
-    latestDate,
-    defaultDisplayDate,
-  };
+  const savedAt = new Date().toISOString();
+  try { safeGetLocalStorage()?.setItem('rain3d_gsmap_catalog_v1', JSON.stringify({ version: 1, dates, latestDate, defaultDisplayDate, savedAt })); } catch { /* optional cache */ }
+  return { dates, latestDate, defaultDisplayDate, savedAt, isStale: false };
+  } catch (error) {
+    try {
+      const raw = JSON.parse(safeGetLocalStorage()?.getItem('rain3d_gsmap_catalog_v1') ?? 'null');
+      if (raw?.version === 1 && Array.isArray(raw.dates) && raw.dates.length > 0 && raw.dates.length <= 25) {
+        const dates = raw.dates.map((d: string) => new Date(d)) as Date[];
+        const defaultDisplayDate = new Date(raw.defaultDisplayDate);
+        if (dates.every(d => Number.isFinite(d.getTime())) && dates.some(d => d.getTime() === defaultDisplayDate.getTime())) {
+          return { dates, latestDate: dates[dates.length-1], defaultDisplayDate, isStale: true, savedAt: raw.savedAt };
+        }
+      }
+    } catch { /* invalid cache is not a catalog */ }
+    throw error;
+  }
 }
 
 /**
- * 指定日時（省略時は最新観測データ）の GSMaP 降水データを取得し、
- * MapLibre 3D地形に重畳可能な透過PNG DataURL と統計情報を生成します。
+ * 指定日時の GSMaP 降水データを取得。
+ * 取得関数はデータを返す責任に限定し、途中でアクティブインスペクターを変更しない (FIX-05)。
  */
 export async function fetchGSMaPRainLayer(
   targetDate?: Date,
-  updateActiveInspector = true
+  updateActiveInspector = false,
+  signal?: AbortSignal
 ): Promise<GSMaPRainLayerResult> {
   const je = await getJaxaEarth();
   const ic = await getGSMaPImageCollection();
 
   const useDate = targetDate ?? ic.last();
-  const img = await ic.getImage({ date: useDate, band: 'PRECIP' });
+  const img = await bounded(ic.getImage({ date: useDate, band: 'PRECIP' }), 10000, signal);
 
-  const dataObject = await img.getDataObject({
+  const dataObject = await bounded(img.getDataObject({
     bbox: JAPAN_RAIN_BBOX,
     width: 560,
     height: 476,
     resampling: je.Resampling.BILINEAR,
-  });
+  }), 15000, signal);
 
   if (updateActiveInspector) {
     activeRainSourceType = 'jaxa-gsmap';
@@ -273,9 +296,12 @@ export async function fetchGSMaPRainLayer(
   const colorMap = new je.image.ColorMap(createRainColorMapObjects());
   const canvas = je.image.createCanvas(dataObject, colorMap);
   const imageUrl = canvas.toDataURL('image/png');
+  canvas.width = 0; canvas.height = 0;
 
   const stats = je.data.stat(dataObject);
+  if (!Number.isFinite(stats.max) || !Number.isFinite(stats.mean)) throw new Error('GSMaP missing data');
   const observedDate = img.getDate() ?? useDate;
+  const key = `gsmap:Gauge.v6_hourly:126,28,146,46:560x476:${observedDate.toISOString()}:v2`;
 
   return {
     imageUrl,
@@ -286,6 +312,8 @@ export async function fetchGSMaPRainLayer(
     meanPrecipitation: Number.isFinite(stats.mean) ? stats.mean : 0,
     dataObject,
     sourceType: 'jaxa-gsmap',
+    status: 'success',
+    key,
   };
 }
 
@@ -298,27 +326,22 @@ export function setActiveRainLayerResult(layer: GSMaPRainLayerResult): void {
     currentJmaGrid = layer.jmaGrid;
   } else {
     activeRainSourceType = 'jaxa-gsmap';
+    currentRainInspector = null;
     if (layer.dataObject) {
       const dobj = layer.dataObject;
-      getJaxaEarth().then((je) => {
-        currentRainInspector = new je.data.Inspector(dobj);
-      });
+      currentRainInspector = new readyJaxaModule.data.Inspector(dobj);
     }
   }
 }
 
-/**
- * キャッシュ済みの GSMaP DataObject をアクティブなインスペクターにセットします。
- */
 export function setActiveRainDataObject(dataObject: DataObject): void {
   activeRainSourceType = 'jaxa-gsmap';
-  getJaxaEarth().then((je) => {
-    currentRainInspector = new je.data.Inspector(dataObject);
-  });
+  currentRainInspector = new readyJaxaModule.data.Inspector(dataObject);
 }
 
 /**
  * 任意の経緯度 [lng, lat] における現在表示中の降水量 (mm/h) と AW3D30 標高 (m) を即座に取得します。
+ * 欠測時は precipitation: null を返します (FIX-02)。
  */
 export function inspectLocationValues(
   lng: number,
@@ -329,7 +352,7 @@ export function inspectLocationValues(
 
   if (activeRainSourceType === 'jma-nowcast' && currentJmaGrid) {
     precipitation = inspectJMAPrecipitation(currentJmaGrid, lng, lat);
-  } else if (currentRainInspector) {
+  } else if (activeRainSourceType === 'jaxa-gsmap' && currentRainInspector) {
     const val = currentRainInspector.getValueByCoordinateXY(lng, lat);
     if (val !== null && Number.isFinite(val)) {
       precipitation = Math.max(0, Number(val.toFixed(2)));
@@ -346,9 +369,6 @@ export function inspectLocationValues(
   return { precipitation, elevation };
 }
 
-/**
- * 事前キャッシュ範囲外の地点がクリックされた場合、AW3D30 からピンポイントで標高(m)を非同期取得します。
- */
 export async function fetchPointElevationFromAW3D(
   lng: number,
   lat: number
@@ -356,15 +376,14 @@ export async function fetchPointElevationFromAW3D(
   try {
     const je = await getJaxaEarth();
     const dl = 0.02;
-    // JAXA Earth API の仕様制約 (width/height は 10 以上 10000 以下) に合わせ 16x16 を指定
-    const dataObj = await je.getDataObject({
+    const dataObj = await bounded(je.getDataObject({
       collectionUrl: AW3D30_COLLECTION_URL,
       band: 'DSM',
       bbox: [lng - dl, lat - dl, lng + dl, lat + dl],
       width: 16,
       height: 16,
       resampling: je.Resampling.BILINEAR,
-    });
+    }), 15000);
     const isp = new je.data.Inspector(dataObj);
     const val = isp.getValueByCoordinateXY(lng, lat);
     if (val !== null && Number.isFinite(val)) {

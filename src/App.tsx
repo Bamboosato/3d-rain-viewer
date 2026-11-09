@@ -1,3 +1,7 @@
+import { diagnostic } from './lib/diagnostics';
+import { useUpdateBlocker } from './lib/updateGuard';
+import { bounded } from './lib/asyncLifecycle';
+import { FrameScheduler, touchFrame, trimFrames } from './lib/frameBudget';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type maplibregl from 'maplibre-gl';
 import {
@@ -29,17 +33,29 @@ import {
 import {
   fetchJMANowcastCatalog,
   fetchJMANowcastRainLayer,
+  getJMAFrameKey,
 } from './lib/jmaNowcastClient';
 import {
   isSameCoordinate,
   loadFavoriteLocations,
+  loadFavoriteLocationsAsync,
   loadLastBackupAt,
+  MAX_FAVORITES_COUNT,
+  MAX_NAME_LENGTH,
   requestPersistentStorage,
   saveFavoriteLocations,
+  saveFavoritesAndUndoAtomic,
+  restoreFavoritesUndo,
+  getFavoritesStorageWarning,
+  readFavoritesRecoveryData,
   saveLastBackupAt,
+  type StorageOperationResult,
 } from './lib/favoritesStorage';
 import {
   buildFavoriteLocation,
+  previewImport,
+  type ImportMode,
+  clearPendingFavoritesPayload,
   decodeFavoritesPayload,
   extractFavoritesPayloadFromHash,
   FavoritesTransferError,
@@ -83,6 +99,54 @@ export const App: React.FC = () => {
   const [favorites, setFavorites] = useState<PresetLocation[]>(
     () => initialFavoritesRef.current ?? []
   );
+  const favoritesRef = useRef<PresetLocation[]>(favorites);
+
+  const [favoritesBusy, setFavoritesBusy] = useState(0);
+  useUpdateBlocker(favoritesBusy > 0);
+  const [favoritesWarning, setFavoritesWarning] = useState<string | null>(null);
+  const favoritesOpQueueRef = useRef<Promise<any>>(Promise.resolve());
+
+  // IndexedDB からの非同期初期読み出し（localStorageが空または利用不可の場合の復元・ADD-02）
+  useEffect(() => {
+    let mounted = true;
+    const restore = loadFavoriteLocationsAsync().then((items) => {
+      if (mounted) {
+        favoritesRef.current = items;
+        setFavorites(items);
+        setFavoritesWarning(getFavoritesStorageWarning());
+        setLastBackupAt(loadLastBackupAt());
+      }
+    });
+    favoritesOpQueueRef.current = restore;
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const runSerializedFavoritesOp = useCallback(
+    <T,>(
+      op: (current: PresetLocation[]) => Promise<{ next?: PresetLocation[]; result: T }>
+    ): Promise<T> => {
+      setFavoritesBusy(n => n + 1);
+      const task = favoritesOpQueueRef.current.then(async () => {
+        const current = favoritesRef.current;
+        const { next, result } = await op(current);
+        if (next !== undefined) {
+          favoritesRef.current = next;
+          setFavoritesWarning(getFavoritesStorageWarning());
+          runViewTransition(() => {
+            setFavorites(next);
+          });
+        }
+        return result;
+      });
+      const finished = task.finally(() => setFavoritesBusy(n => n - 1));
+      favoritesOpQueueRef.current = finished.catch(() => {});
+      return finished;
+    },
+    []
+  );
+
   const [activePreset, setActivePreset] = useState<PresetLocation>(
     () => initialPresetResolutionRef.current.preset
   );
@@ -104,6 +168,31 @@ export const App: React.FC = () => {
   const [playbackSpeed, setPlaybackSpeed] = useState<1 | 2>(1);
   const [cachedCount, setCachedCount] = useState<number>(0);
 
+  const [memoryOnly, setMemoryOnly] = useState(false);
+  useEffect(() => {
+    const listen = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (detail.operation === 'tile-write') setMemoryOnly(detail.outcome === 'memory-only');
+    };
+    window.addEventListener('rain3d-diagnostic', listen);
+    return () => window.removeEventListener('rain3d-diagnostic', listen);
+  }, []);
+  const [rainError, setRainError] = useState<string | null>(null);
+  const [catalogNotice, setCatalogNotice] = useState<string | null>(null);
+  const [catalogRevision, setCatalogRevision] = useState(0);
+  const selectedTimeRef = useRef<Date | null>(null);
+  const refreshCatalog = useCallback(() => {
+    jmaFramesCatalogRef.current = null; gsmapFramesCatalogRef.current = null;
+    setCatalogRevision(n => n + 1);
+  }, []);
+  useEffect(() => {
+    const visible = () => { if (document.visibilityState === 'visible') refreshCatalog(); };
+    const timer = window.setInterval(visible, 5 * 60 * 1000);
+    window.addEventListener('online', refreshCatalog);
+    document.addEventListener('visibilitychange', visible);
+    return () => { window.clearInterval(timer); window.removeEventListener('online', refreshCatalog); document.removeEventListener('visibilitychange', visible); };
+  }, [refreshCatalog]);
+
   const [rainLayerData, setRainLayerData] = useState<GSMaPRainLayerResult | null>(null);
   const [isLoadingRain, setIsLoadingRain] = useState<boolean>(true);
   const [activePresetRain, setActivePresetRain] = useState<number | null>(null);
@@ -121,7 +210,7 @@ export const App: React.FC = () => {
         lng: urlState.lng,
         lat: urlState.lat,
         elevation: preset.elevation > 0 ? preset.elevation : null,
-        precipitation: 0,
+        precipitation: null,
         screenX: typeof window !== 'undefined' ? Math.round(window.innerWidth / 2) : undefined,
         screenY: typeof window !== 'undefined' ? Math.round(window.innerHeight / 2) : undefined,
         label: preset.isFavorite ? `⭐ ${urlState.spotName}` : `📍 ${urlState.spotName}`,
@@ -187,15 +276,31 @@ export const App: React.FC = () => {
     defaultIndex: number;
   } | null>(null);
 
-  const jmaCacheRef = useRef<Map<number, GSMaPRainLayerResult>>(new Map());
-  const gsmapCacheRef = useRef<Map<number, GSMaPRainLayerResult>>(new Map());
+  const jmaCacheRef = useRef<Map<string, GSMaPRainLayerResult>>(new Map());
+  const gsmapCacheRef = useRef<Map<string, GSMaPRainLayerResult>>(new Map());
   const inFlightRequestsRef = useRef<Map<string, Promise<GSMaPRainLayerResult>>>(new Map());
+  const activeRequestIdRef = useRef<number>(0);
+  const schedulerRef = useRef(new FrameScheduler());
+  const activeFrameRef = useRef<GSMaPRainLayerResult | null>(null);
+  const frameControllers = useRef(new Map<string, { controller: AbortController; foreground: boolean }>());
+  useEffect(() => {
+    const hide = () => { if (document.visibilityState === 'hidden') for (const entry of frameControllers.current.values()) if (!entry.foreground) entry.controller.abort(); };
+    document.addEventListener('visibilitychange', hide);
+    return () => { document.removeEventListener('visibilitychange', hide); for (const entry of frameControllers.current.values()) entry.controller.abort(); };
+  }, []);
 
   const getCacheForSource = useCallback((source: RainSourceId) => {
     return source === 'jma-nowcast' ? jmaCacheRef.current : gsmapCacheRef.current;
   }, []);
 
-  // 指定ソース・指定インデックスの雨雲フレームを取得（重複リクエスト抑止＆キャッシュ対応）
+  const getFrameKey = useCallback((source: RainSourceId, frame: TimelineFrameItem): string => {
+    if (source === 'jma-nowcast') {
+      return getJMAFrameKey(frame);
+    }
+    return `gsmap:Gauge.v6_hourly:126,28,146,46:560x476:${frame.date.toISOString()}:v2`;
+  }, []);
+
+  // 指定ソース・指定インデックスの雨雲フレームを取得（重複リクエスト抑止＆LRUキャッシュ＆in-flight解放） (FIX-04, FIX-05, FIX-13)
   const loadFrameAtIndex = useCallback(
     async (
       source: RainSourceId,
@@ -203,42 +308,65 @@ export const App: React.FC = () => {
       framesList: TimelineFrameItem[],
       isForeground: boolean
     ): Promise<GSMaPRainLayerResult | null> => {
+      const started = performance.now();
       const targetFrame = framesList[index];
       if (!targetFrame) return null;
 
+      const cacheKey = getFrameKey(source, targetFrame);
       const cacheMap = getCacheForSource(source);
-      const existing = cacheMap.get(index);
-      if (existing) {
-        if (isForeground) {
-          setActiveRainLayerResult(existing);
-        }
+      const existing = cacheMap.get(cacheKey);
+      if (existing && existing.status !== 'partial') {
+        // LRU 参照時更新 (FIX-13)
+        cacheMap.delete(cacheKey);
+        cacheMap.set(cacheKey, existing);
+        diagnostic({ operation: 'frame', backend: 'memory', outcome: 'hit', generation: activeRequestIdRef.current });
+        touchFrame(existing);
         return existing;
       }
 
-      const reqKey = `${source}:${index}`;
+      const reqKey = `${source}:${cacheKey}`;
       let pending = inFlightRequestsRef.current.get(reqKey);
+      const running = frameControllers.current.get(reqKey);
+      if (running?.controller.signal.aborted) pending = undefined;
+      else if (running && isForeground) {
+        running.foreground = true;
+        schedulerRef.current.promote(running.controller.signal);
+      }
       if (!pending) {
-        const fetchPromise =
-          source === 'jma-nowcast'
-            ? fetchJMANowcastRainLayer(targetFrame)
-            : fetchGSMaPRainLayer(targetFrame.date, isForeground);
+        const controller = new AbortController();
+        if (!isForeground && document.visibilityState === 'hidden') return null;
+        if (isForeground) for (const [key, entry] of frameControllers.current) if (!entry.foreground && key !== reqKey) entry.controller.abort();
+        frameControllers.current.set(reqKey, { controller, foreground: isForeground });
+        const fetchPromise = (async () => {
+          try {
+            const res = await schedulerRef.current.run(isForeground, () => bounded(
+              source === 'jma-nowcast' ? fetchJMANowcastRainLayer(targetFrame, controller.signal)
+                : fetchGSMaPRainLayer(targetFrame.date, false, controller.signal), 25000, controller.signal), controller.signal);
+            if (res && res.status !== 'failure' && !controller.signal.aborted) {
+              cacheMap.set(cacheKey, res); touchFrame(res);
+              trimFrames([jmaCacheRef.current, gsmapCacheRef.current], activeFrameRef.current);
+              setCachedCount(cacheMap.size);
+            }
+            diagnostic({ operation: 'frame', backend: 'network', outcome: 'success', durationMs: performance.now() - started, generation: activeRequestIdRef.current });
+            return res;
+          } catch (error) {
+            diagnostic({ operation: 'frame', backend: 'network', outcome: 'failure', error: controller.signal.aborted ? 'cancelled' : 'network', durationMs: performance.now() - started });
+            throw error;
+          } finally {
+            if (inFlightRequestsRef.current.get(reqKey) === pending) {
+              inFlightRequestsRef.current.delete(reqKey);
+              frameControllers.current.delete(reqKey);
+            }
+          }
+        })();
 
-        pending = fetchPromise.then((res) => {
-          cacheMap.set(index, res);
-          inFlightRequestsRef.current.delete(reqKey);
-          setCachedCount(cacheMap.size);
-          return res;
-        });
+        pending = fetchPromise;
         inFlightRequestsRef.current.set(reqKey, pending);
       }
 
-      const result = await pending;
-      if (isForeground) {
-        setActiveRainLayerResult(result);
-      }
-      return result;
+      return await pending;
     },
-    [getCacheForSource]
+    [getCacheForSource, getFrameKey]
   );
 
   // 初回マウント時に AW3D30 標高インスペクター用データを事前ロード（共有URLの `name` 指定時は標高も即時取得）
@@ -270,6 +398,7 @@ export const App: React.FC = () => {
   useEffect(() => {
     let mounted = true;
     const activeSource = rainSource;
+    const reqId = ++activeRequestIdRef.current;
 
     const initSourceTimeline = async () => {
       try {
@@ -279,13 +408,16 @@ export const App: React.FC = () => {
 
         if (activeSource === 'jma-nowcast') {
           if (!jmaFramesCatalogRef.current) {
-            jmaFramesCatalogRef.current = await fetchJMANowcastCatalog();
+            const catalog = await fetchJMANowcastCatalog();
+            jmaFramesCatalogRef.current = catalog;
+            if (mounted && reqId === activeRequestIdRef.current) setCatalogNotice(catalog.isStale ? `保存済みカタログ（${catalog.savedAt ?? "取得日時不明"}）・更新失敗` : catalog.isPartial ? "一部の予測カタログを取得できません。実況を表示しています。" : null);
           }
           frames = jmaFramesCatalogRef.current.frames;
           defaultIdx = jmaFramesCatalogRef.current.defaultIndex;
         } else {
           if (!gsmapFramesCatalogRef.current) {
-            const catalog = await fetchGSMaPTimelineCatalog();
+            const catalog = await fetchGSMaPTimelineCatalog(true);
+            if (mounted && reqId === activeRequestIdRef.current) setCatalogNotice(catalog.isStale ? `保存済みカタログ（${catalog.savedAt ?? "取得日時不明"}）・更新失敗` : null);
             const maxIdx = Math.max(0, catalog.dates.length - 1);
             const gsmapFrames: TimelineFrameItem[] = catalog.dates.map((d, idx) => {
               const hoursAgo = maxIdx - idx;
@@ -312,10 +444,14 @@ export const App: React.FC = () => {
           defaultIdx = gsmapFramesCatalogRef.current.defaultIndex;
         }
 
-        if (!mounted) return;
+        if (!mounted || reqId !== activeRequestIdRef.current) return;
 
         // 初回起動時にURLの `t` パラメータが指定されていれば該当時刻のフレームを選択
         let targetIdx = defaultIdx;
+        if (catalogRevision > 0 && selectedTimeRef.current) {
+          const index = frames.findIndex(f => f.date.getTime() === selectedTimeRef.current!.getTime());
+          if (index >= 0) targetIdx = index;
+        }
         if (pendingUrlTimeParamRef.current !== undefined) {
           targetIdx = resolveFrameIndexFromTimeParam(
             pendingUrlTimeParamRef.current,
@@ -328,41 +464,52 @@ export const App: React.FC = () => {
         const cacheMap = getCacheForSource(activeSource);
         setTimelineFrames(frames);
         setCurrentTimeIndex(targetIdx);
+        selectedTimeRef.current = frames[targetIdx]?.date ?? null;
         setCachedCount(cacheMap.size);
 
         const initialRain = await loadFrameAtIndex(activeSource, targetIdx, frames, true);
-        if (!mounted || !initialRain) return;
+        if (!mounted || reqId !== activeRequestIdRef.current || !initialRain) return;
 
+        setActiveRainLayerResult(initialRain);
+        activeFrameRef.current = initialRain;
+        trimFrames([jmaCacheRef.current, gsmapCacheRef.current], initialRain);
         setRainLayerData(initialRain);
+        setRainError(null);
 
         const [lng, lat] = activePreset.center;
         const inspected = inspectLocationValues(lng, lat);
-        setActivePresetRain(inspected.precipitation ?? 0);
+        setActivePresetRain(inspected.precipitation);
         setInspectedPoint((prev) =>
           prev
             ? {
                 ...prev,
-                precipitation: inspectLocationValues(prev.lng, prev.lat).precipitation ?? 0,
+                precipitation: inspectLocationValues(prev.lng, prev.lat).precipitation,
               }
             : null
         );
         setIsLoadingRain(false);
 
-        // 全フレームをバックグラウンドで順次プリフェッチ（フリッカーレス高速再生用）
-        for (let offset = 1; offset < frames.length; offset++) {
-          if (!mounted) break;
-          const idx = (targetIdx + offset) % frames.length;
-          if (!cacheMap.has(idx)) {
-            try {
-              await loadFrameAtIndex(activeSource, idx, frames, false);
-            } catch {
-              // 個別フレームのバックグラウンド取得失敗は無視
+        // 前後2フレーム限定でバックグラウンド先読み (予算管理・FIX-13)
+        const prefetchOffsets = [-1, 1, -2, 2];
+        for (const off of prefetchOffsets) {
+          if (!mounted || reqId !== activeRequestIdRef.current || document.visibilityState === 'hidden') break;
+          const pIdx = targetIdx + off;
+          if (pIdx >= 0 && pIdx < frames.length) {
+            const pFrame = frames[pIdx];
+            const pKey = getFrameKey(activeSource, pFrame);
+            if (!cacheMap.has(pKey)) {
+              try {
+                await loadFrameAtIndex(activeSource, pIdx, frames, false);
+              } catch {
+                // 先読み失敗は無視
+              }
             }
           }
         }
       } catch (err) {
         console.error(`Failed to initialize rain source (${activeSource}):`, err);
-        if (mounted) {
+        if (mounted && reqId === activeRequestIdRef.current) {
+          setRainError("雨雲データを取得できません。再試行してください。");
           setIsLoadingRain(false);
         }
       }
@@ -371,61 +518,80 @@ export const App: React.FC = () => {
     initSourceTimeline();
     return () => {
       mounted = false;
+      for (const entry of frameControllers.current.values()) entry.controller.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rainSource, loadFrameAtIndex, getCacheForSource]);
+  }, [rainSource, catalogRevision, loadFrameAtIndex, getCacheForSource]);
 
-  // 時系列インデックス変更時に該当時刻の雨雲データを即時反映
+  // 時系列インデックス変更時に該当時刻の雨雲データを即時反映 (要求世代管理・FIX-05)
   const handleSelectTimeIndex = useCallback(
     async (index: number) => {
       setCurrentTimeIndex(index);
+      selectedTimeRef.current = timelineFrames[index]?.date ?? null;
       if (timelineFrames.length === 0) return;
 
+      const reqId = ++activeRequestIdRef.current;
+      const targetFrame = timelineFrames[index];
+      if (!targetFrame) return;
+
+      const cacheKey = getFrameKey(rainSource, targetFrame);
       const cacheMap = getCacheForSource(rainSource);
-      const cached = cacheMap.get(index);
-      if (cached) {
+      const cached = cacheMap.get(cacheKey);
+
+      if (cached && cached.status !== 'partial') {
+        cacheMap.delete(cacheKey); cacheMap.set(cacheKey, cached);
         setActiveRainLayerResult(cached);
+        touchFrame(cached); activeFrameRef.current = cached;
         setRainLayerData(cached);
-        setTimeout(() => {
-          const [lng, lat] = activePreset.center;
-          const val = inspectLocationValues(lng, lat);
-          setActivePresetRain(val.precipitation ?? 0);
-          setInspectedPoint((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  precipitation: inspectLocationValues(prev.lng, prev.lat).precipitation ?? 0,
-                }
-              : null
-          );
-        }, 0);
+        setRainError(null);
+        setIsLoadingRain(false);
+        const [lng, lat] = activePreset.center;
+        const val = inspectLocationValues(lng, lat);
+        setActivePresetRain(val.precipitation);
+        setInspectedPoint((prev) =>
+          prev
+            ? {
+                ...prev,
+                precipitation: inspectLocationValues(prev.lng, prev.lat).precipitation,
+              }
+            : null
+        );
         return;
       }
 
       try {
         setIsLoadingRain(true);
         const result = await loadFrameAtIndex(rainSource, index, timelineFrames, true);
-        if (result) {
+        // 最新の要求世代と一致している場合のみ画面に反映 (FIX-05)
+        if (reqId === activeRequestIdRef.current && result) {
+          setActiveRainLayerResult(result);
+          activeFrameRef.current = result;
+          trimFrames([jmaCacheRef.current, gsmapCacheRef.current], result);
           setRainLayerData(result);
+          setRainError(null);
           const [lng, lat] = activePreset.center;
           const val = inspectLocationValues(lng, lat);
-          setActivePresetRain(val.precipitation ?? 0);
+          setActivePresetRain(val.precipitation);
           setInspectedPoint((prev) =>
             prev
               ? {
                   ...prev,
-                  precipitation: inspectLocationValues(prev.lng, prev.lat).precipitation ?? 0,
+                  precipitation: inspectLocationValues(prev.lng, prev.lat).precipitation,
                 }
               : null
           );
         }
       } catch (err) {
-        console.error('Failed to load rain frame:', err);
+        if (reqId === activeRequestIdRef.current) {
+          setRainError('選択時刻の取得に失敗しました。表示中の画像は前の時刻です。');
+        }
       } finally {
-        setIsLoadingRain(false);
+        if (reqId === activeRequestIdRef.current) {
+          setIsLoadingRain(false);
+        }
       }
     },
-    [timelineFrames, rainSource, activePreset.center, getCacheForSource, loadFrameAtIndex]
+    [timelineFrames, rainSource, activePreset.center, getCacheForSource, loadFrameAtIndex, getFrameKey]
   );
 
   // URLパラメータを即座に最新状態へ同期（共有ボタン押下時の即時フラッシュにも使用）
@@ -485,15 +651,15 @@ export const App: React.FC = () => {
     }, 300);
   }, [timelineFrames, currentTimeIndex, rainSource, baseMap, exaggeration]);
 
-  // タイムライン時刻・データソース・背景地図・標高強調が変化した際も300msデバウンスでURLを更新
+  // 選択状態は直ちにURLへ反映する。カメラの連続移動だけをデバウンスする。
   useEffect(() => {
-    scheduleUrlSync();
+    flushUrlState();
     return () => {
       if (urlSyncTimerRef.current !== null) {
         window.clearTimeout(urlSyncTimerRef.current);
       }
     };
-  }, [scheduleUrlSync]);
+  }, [flushUrlState]);
 
   // MapViewer の moveend イベントから呼ばれるカメラ変更ハンドラ
   const handleCameraChange = useCallback(
@@ -508,6 +674,7 @@ export const App: React.FC = () => {
   const handleChangeRainSource = useCallback(
     (nextSource: RainSourceId) => {
       if (nextSource === rainSource) return;
+      ++activeRequestIdRef.current;
       runViewTransition(() => {
         setIsPlaying(false);
         setRainSource(nextSource);
@@ -572,12 +739,12 @@ export const App: React.FC = () => {
       runViewTransition(() => {
         setOpenTopPanel(null);
         setActivePreset(preset);
-        setActivePresetRain(inspected.precipitation ?? 0);
+        setActivePresetRain(inspected.precipitation);
         setInspectedPoint({
           lng,
           lat,
           elevation: initialElevation,
-          precipitation: inspected.precipitation ?? 0,
+          precipitation: inspected.precipitation,
           screenX,
           screenY,
           label: preset.isFavorite
@@ -629,10 +796,24 @@ export const App: React.FC = () => {
     );
   }, [favorites, inspectedPoint]);
 
-  // お気に入り地点の登録・更新（登録時点の縮尺・傾き・方角を記憶）
+  // お気に入り地点の登録・更新（直列化・最新世代保護・ADD-01, ADD-02, ADD-03）
   const handleSaveFavorite = useCallback(
-    (customName: string) => {
-      if (!inspectedPoint) return;
+    async (customName: string): Promise<StorageOperationResult> => {
+      if (!inspectedPoint) {
+        return { success: false, error: 'invalid-data', message: '地点が選択されていません。' };
+      }
+      const trimmed = customName.trim();
+      if (!trimmed) {
+        return { success: false, error: 'invalid-data', message: '地点名を入力してください。' };
+      }
+      if (trimmed.length > MAX_NAME_LENGTH) {
+        return {
+          success: false,
+          error: 'invalid-data',
+          message: `地点名は最大${MAX_NAME_LENGTH}文字です。（現在${trimmed.length}文字）`,
+        };
+      }
+
       const map = mapInstanceRef.current;
       const currentZoom = Number((map?.getZoom() ?? 10.5).toFixed(2));
       const currentPitch = Math.round(map?.getPitch() ?? 60);
@@ -641,7 +822,7 @@ export const App: React.FC = () => {
       const nowIso = new Date().toISOString();
       const newFav: PresetLocation = buildFavoriteLocation({
         id: matchedFavorite?.id ?? `fav-${Date.now()}`,
-        name: customName,
+        name: trimmed,
         lng: inspectedPoint.lng,
         lat: inspectedPoint.lat,
         zoom: currentZoom,
@@ -651,45 +832,83 @@ export const App: React.FC = () => {
         createdAt: matchedFavorite?.createdAt ?? nowIso,
         updatedAt: nowIso,
       });
-      requestPersistentStorage();
 
-      runViewTransition(() => {
-        setFavorites((prev) => {
-          const exists = prev.some((f) => f.id === newFav.id);
-          const next = exists
-            ? prev.map((f) => (f.id === newFav.id ? newFav : f))
-            : [newFav, ...prev];
-          saveFavoriteLocations(next);
-          return next;
-        });
-        setActivePreset(newFav);
-        setInspectedPoint((prev) => (prev ? { ...prev, label: `⭐ ${customName}` } : null));
+      return runSerializedFavoritesOp<StorageOperationResult>(async (current) => {
+        const isExisting = current.some((f) => f.id === newFav.id);
+        if (!isExisting && current.length >= MAX_FAVORITES_COUNT) {
+          const res: StorageOperationResult = {
+            success: false,
+            error: 'invalid-data',
+            message: `お気に入り登録上限（最大${MAX_FAVORITES_COUNT}件）に達しています。不要な地点を削除してから追加してください。`,
+          };
+          return {
+            result: res,
+          };
+        }
+
+        const next = isExisting
+          ? current.map((f) => (f.id === newFav.id ? newFav : f))
+          : [newFav, ...current];
+
+        requestPersistentStorage();
+        const saveRes = await saveFavoriteLocations(next);
+        if (saveRes.success) {
+          runViewTransition(() => {
+            setActivePreset(newFav);
+            setInspectedPoint((prev) => (prev ? { ...prev, label: `⭐ ${trimmed}` } : null));
+          });
+          return { next, result: saveRes };
+        } else {
+          console.error('Failed to save favorite:', saveRes.message);
+          return { result: saveRes };
+        }
       });
     },
-    [inspectedPoint, matchedFavorite]
+    [inspectedPoint, matchedFavorite, runSerializedFavoritesOp]
   );
 
-  // お気に入り地点の削除
-  const handleRemoveFavorite = useCallback((id: string) => {
-    runViewTransition(() => {
-      setFavorites((prev) => {
-        const next = prev.filter((f) => f.id !== id);
-        saveFavoriteLocations(next);
-        return next;
+  // お気に入り地点の削除（直列化・ADD-03）
+  const handleRemoveFavorite = useCallback(
+    async (id: string) => {
+      return runSerializedFavoritesOp(async (current) => {
+        const next = current.filter((f) => f.id !== id);
+        const saveRes = await saveFavoriteLocations(next);
+        if (saveRes.success) {
+          return { next, result: saveRes };
+        }
+        setFavoritesWarning(saveRes.message ?? "削除できませんでした。");
+        return { result: saveRes };
       });
-    });
-  }, []);
+    },
+    [runSerializedFavoritesOp]
+  );
 
   // バックアップ・引き継ぎ（JSON / 同期URL）からの取り込み結果、または元に戻す操作を反映
-  const handleApplyFavorites = useCallback((next: PresetLocation[]) => {
-    saveFavoriteLocations(next);
-    setFavorites(next);
-    if (next.length > 0) requestPersistentStorage();
-  }, []);
+  const handleApplyFavorites = useCallback(
+    (action: { kind: 'import'; items: PresetLocation[]; mode: ImportMode; expected: PresetLocation[] } | { kind: 'undo' }) =>
+      runSerializedFavoritesOp(async (current) => {
+        if (action.kind === 'undo') {
+          const result = await restoreFavoritesUndo();
+          return { next: result.success ? result.restoredItems : undefined, result };
+        }
+        const affected = (items: PresetLocation[]) => action.mode === 'replace' ? items : items.filter(item =>
+          action.items.some(incoming => incoming.id === item.id || isSameCoordinate(incoming.center[0], incoming.center[1], item.center[0], item.center[1])));
+        if (JSON.stringify(affected(current)) !== JSON.stringify(affected(action.expected))) {
+          return { result: { success: false, message: '確認中に対象の一覧が更新されました。表示内容を確認してから、もう一度取り込んでください。' } };
+        }
+        const preview = previewImport(current, action.items, action.mode);
+        if (preview.truncated) return { result: { success: false, message: '登録上限を超えるため取り込みできません。' } };
+        const result = await saveFavoritesAndUndoAtomic(preview.next, current);
+        return { next: result.success ? preview.next : undefined,
+          result: { ...result, restoredItems: result.success ? preview.next : undefined } };
+      }),
+    [runSerializedFavoritesOp]
+  );
 
-  const handleBackupExported = useCallback((iso: string) => {
-    saveLastBackupAt(iso);
-    setLastBackupAt(iso);
+  const handleBackupExported = useCallback(async (iso: string) => {
+    const result = await saveLastBackupAt(iso);
+    if (result.success) setLastBackupAt(iso);
+    else setFavoritesWarning('書き出しは開始しましたが、書き出し操作日時を保存できませんでした。');
   }, []);
 
   const handleOpenFavoritesSync = useCallback(() => {
@@ -700,6 +919,7 @@ export const App: React.FC = () => {
   }, []);
 
   const handleCloseFavoritesSync = useCallback(() => {
+    clearPendingFavoritesPayload();
     setFavoritesSyncDialog(null);
   }, []);
 
@@ -854,7 +1074,7 @@ export const App: React.FC = () => {
             lng: longitude,
             lat: latitude,
             elevation: inspected.elevation,
-            precipitation: inspected.precipitation ?? 0,
+            precipitation: inspected.precipitation,
             screenX,
             screenY,
             label: '📍 現在地',
@@ -936,7 +1156,7 @@ export const App: React.FC = () => {
       runViewTransition(() => {
         setOpenTopPanel(null);
         setActivePreset(preset);
-        setActivePresetRain(inspected.precipitation ?? 0);
+        setActivePresetRain(inspected.precipitation);
 
         if (urlState.spotName) {
           const screenX = Math.round(window.innerWidth / 2);
@@ -945,7 +1165,7 @@ export const App: React.FC = () => {
             lng,
             lat,
             elevation: resolvedElevation,
-            precipitation: inspected.precipitation ?? 0,
+            precipitation: inspected.precipitation,
             screenX,
             screenY,
             label: preset.isFavorite ? `⭐ ${urlState.spotName}` : `📍 ${urlState.spotName}`,
@@ -1220,6 +1440,19 @@ export const App: React.FC = () => {
       </div>
 
       {/* お気に入りのバックアップ・引き継ぎダイアログ */}
+      {(memoryOnly || rainError || catalogNotice || rainLayerData?.status === 'partial') && <div role="status" className="fixed bottom-40 left-4 z-40 max-w-md rounded bg-slate-900 p-3 text-white text-xs">
+        <p>{rainError ?? (rainLayerData?.status === 'partial' ? '一部の領域が欠測しています。' : '')}</p>
+        <p>{catalogNotice}</p>{memoryOnly && <p>地図データを端末に保存できません。この画面では閲覧を続けられます。</p>}<p>表示時刻: {rainLayerData?.formattedDateJST ?? '未取得'}</p>
+        <button onClick={() => { refreshCatalog(); void handleSelectTimeIndex(currentTimeIndex); }}>再試行</button>
+      </div>}
+      {favoritesWarning && <div role="alert" className="fixed bottom-24 left-4 right-4 z-50 rounded bg-slate-900 p-3 text-white">{favoritesWarning}<button className="ml-3 underline" onClick={async () => {
+        try {
+          const data = await readFavoritesRecoveryData();
+          const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+          const link = document.createElement('a'); link.href = url; link.download = 'favorites-recovery.json'; link.click();
+          window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+        } catch { setFavoritesWarning('救済用データを読み出せませんでした。元の保存内容は変更していません。'); }
+      }}>元の保存データを書き出す</button></div>}
       {favoritesSyncDialog && (
         <FavoritesSyncDialog
           favorites={favorites}

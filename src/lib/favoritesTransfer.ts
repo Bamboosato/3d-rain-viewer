@@ -1,5 +1,11 @@
 import type { PresetLocation } from '../types/map';
-import { FAVORITE_AREA_GROUP, isSameCoordinate } from './favoritesStorage';
+import {
+  FAVORITE_AREA_GROUP,
+  isSameCoordinate,
+  isValidFavoriteLocation,
+  MAX_FAVORITES_COUNT,
+  MAX_NAME_LENGTH,
+} from './favoritesStorage';
 import { PUBLIC_APP_ORIGIN } from './urlSync';
 
 /**
@@ -14,15 +20,15 @@ export const BACKUP_APP_ID = '3d-rain-viewer';
 export const BACKUP_KIND = 'favorites';
 export const BACKUP_SCHEMA_VERSION = 1;
 
-/** 1回の取り込み・保存で扱うお気に入りの最大件数（不正データ対策） */
-export const MAX_FAVORITES = 500;
+/** 1回の取り込み・保存で扱うお気に入りの最大件数（不正データ対策） (FIX-14, ADD-01) */
+export const MAX_FAVORITES = MAX_FAVORITES_COUNT;
 /** 読み込むJSONファイルの最大サイズ */
 export const MAX_BACKUP_FILE_BYTES = 1024 * 1024;
 /** 同期URL `#fav=` ペイロードの最大文字数 */
 const MAX_HASH_PAYLOAD_CHARS = 64 * 1024;
 /** 同期URL展開後の最大バイト数（圧縮爆弾対策） */
 const MAX_DECODED_BYTES = 1024 * 1024;
-const MAX_NAME_LENGTH = 60;
+export { MAX_NAME_LENGTH };
 
 export const FAVORITES_HASH_KEY = 'fav';
 
@@ -79,7 +85,8 @@ function sanitizeName(v: unknown): string {
   if (typeof v !== 'string') return '';
   // 制御文字を除去し、長さを制限
   // eslint-disable-next-line no-control-regex
-  return v.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, MAX_NAME_LENGTH);
+  if (v.length > MAX_NAME_LENGTH || /[\u0000-\u001f\u007f]/.test(v)) throw new FavoritesTransferError('名前が長すぎるか制御文字を含みます。元のファイルで確認してください。');
+  return v.trim();
 }
 
 export interface FavoriteInput {
@@ -141,7 +148,10 @@ function sanitizeFavorite(raw: unknown): PresetLocation | null {
   }
   const id =
     typeof item.id === 'string' && /^[\w.-]{1,64}$/.test(item.id) ? item.id : undefined;
-  return buildFavoriteLocation({
+  if (item.id !== undefined && id === undefined) throw new FavoritesTransferError('地点IDが不正です。');
+  if (!isValidFavoriteLocation({ ...item, id: id ?? 'import', name })) throw new FavoritesTransferError('地点の座標・視点設定が不正です。');
+  for (const key of ['createdAt', 'updatedAt']) if (item[key] !== undefined && !sanitizeIso(item[key])) throw new FavoritesTransferError('登録日時が不正です。');
+  return { ...buildFavoriteLocation({
     id,
     name,
     lng,
@@ -152,7 +162,7 @@ function sanitizeFavorite(raw: unknown): PresetLocation | null {
     elevation: isFiniteNumber(item.elevation) ? item.elevation : 0,
     createdAt: sanitizeIso(item.createdAt),
     updatedAt: sanitizeIso(item.updatedAt),
-  });
+  }), zoom: item.zoom, pitch: item.pitch, bearing: item.bearing };
 }
 
 function sanitizeList(rawItems: unknown[]): PresetLocation[] {
@@ -164,6 +174,7 @@ function sanitizeList(rawItems: unknown[]): PresetLocation[] {
   const items = rawItems
     .map(sanitizeFavorite)
     .filter((v): v is PresetLocation => v !== null);
+  if (items.length !== rawItems.length) throw new FavoritesTransferError('不正な地点を含むため取り込みを停止しました。元のファイルを確認してください。');
   if (items.length === 0) {
     throw new FavoritesTransferError('取り込めるお気に入り地点が見つかりませんでした。');
   }
@@ -494,7 +505,8 @@ async function inflateRaw(bytes: Uint8Array): Promise<Uint8Array> {
  * 形式: `1z<base64url(deflate-raw(JSON))>`（圧縮非対応ブラウザでは `1j<base64url(JSON)>`）
  */
 export async function encodeFavoritesPayload(favorites: PresetLocation[]): Promise<string> {
-  const json = JSON.stringify(favorites.slice(0, MAX_FAVORITES).map(toCompact));
+  if (favorites.length > MAX_FAVORITES || favorites.some(item => item.name.length > MAX_NAME_LENGTH)) throw new FavoritesTransferError('同期URLの上限を超えています。JSONファイルを書き出して保管してください。');
+  const json = JSON.stringify(favorites.map(toCompact));
   const raw = new TextEncoder().encode(json);
   if (supportsDeflateRaw()) {
     return `${BACKUP_SCHEMA_VERSION}z${bytesToBase64Url(await deflateRaw(raw))}`;
@@ -556,6 +568,7 @@ export async function decodeFavoritesPayload(payload: string): Promise<PresetLoc
   const items = parsed
     .map((raw, i) => fromCompact(raw, i))
     .filter((v): v is PresetLocation => v !== null);
+  if (items.length !== parsed.length) throw new FavoritesTransferError('不正な地点を含む同期URLです。');
   if (items.length === 0) {
     throw new FavoritesTransferError('取り込めるお気に入り地点が見つかりませんでした。');
   }
@@ -592,11 +605,81 @@ export function extractFavoritesPayloadFromText(text: string): string | null {
  * 現在のアドレスバーから `#fav=...` を取り出し、履歴を汚さずにハッシュを消去します。
  * （リロード時の再取り込みや、通常の共有URLへの混入を防止）
  */
+export const PENDING_FAVORITES_PAYLOAD_KEY = 'rain3d_pending_fav_payload_v1';
+
+export function hasPendingFavoritesPayload(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    if (window.sessionStorage?.getItem(PENDING_FAVORITES_PAYLOAD_KEY)) return true;
+  } catch {
+    // ignore
+  }
+  try {
+    return !!extractFavoritesPayloadFromHash(window.location.hash);
+  } catch {
+    return false;
+  }
+}
+
+export function clearPendingFavoritesPayload(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage?.removeItem(PENDING_FAVORITES_PAYLOAD_KEY);
+  } catch {
+    // ignore
+  }
+  try {
+    if (window.location.hash.includes(FAVORITES_HASH_KEY)) {
+      const hash = window.location.hash.slice(1);
+      const params = new URLSearchParams(hash);
+      params.delete(FAVORITES_HASH_KEY);
+      const remaining = params.toString();
+      const newUrl = remaining
+        ? `${window.location.pathname}${window.location.search}#${remaining}`
+        : `${window.location.pathname}${window.location.search}`;
+      window.history.replaceState(null, '', newUrl);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * 現在のアドレスバーまたは保留領域から #fav=... を取り出します。
+ * 初回SW制御開始等のリロードで取り込みを失わないよう、保留可能を確認してからURLから消去します (FIX-06)。
+ */
 export function takeFavoritesPayloadFromLocation(): string | null {
   if (typeof window === 'undefined') return null;
-  const payload = extractFavoritesPayloadFromHash(window.location.hash);
-  if (payload && window.history?.replaceState) {
+
+  // 1. 保留ストレージに既に存在するか確認
+  let pending: string | null = null;
+  try {
+    pending = window.sessionStorage?.getItem(PENDING_FAVORITES_PAYLOAD_KEY) ?? null;
+  } catch {
+    pending = null;
+  }
+
+  // 2. URLハッシュから抽出
+  const hashPayload = extractFavoritesPayloadFromHash(window.location.hash);
+  const payload = hashPayload || pending;
+
+  if (!payload) return null;
+
+  // 3. sessionStorage に退避を試みる
+  let persistedInSession = false;
+  try {
+    if (window.sessionStorage) {
+      window.sessionStorage.setItem(PENDING_FAVORITES_PAYLOAD_KEY, payload);
+      persistedInSession = true;
+    }
+  } catch {
+    persistedInSession = false;
+  }
+
+  // 4. sessionStorageへ保存できた場合のみURLハッシュをクリア。失敗時は救済のためハッシュを残す
+  if (persistedInSession && hashPayload && window.history?.replaceState) {
     window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
   }
+
   return payload;
 }

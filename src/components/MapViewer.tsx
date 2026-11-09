@@ -59,6 +59,7 @@ export const MapViewer: React.FC<MapViewerProps> = ({
 }) => {
   const [isTilesLoading, setIsTilesLoading] = useState<boolean>(true);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const [mapReady, setMapReady] = useState(false);
   const internalMapRef = useRef<maplibregl.Map | null>(null);
   const markerRef = useRef<maplibregl.Marker | null>(null);
   const favoriteMarkersRef = useRef<maplibregl.Marker[]>([]);
@@ -312,6 +313,7 @@ export const MapViewer: React.FC<MapViewerProps> = ({
       map.on('load', () => {
         if (disposed) return;
         isMapLoadedRef.current = true;
+        setMapReady(true);
 
         // JAXA AW3D30 Terrain RGB ソースの追加
         if (!map.getSource('terrain')) {
@@ -366,7 +368,7 @@ export const MapViewer: React.FC<MapViewerProps> = ({
           lng,
           lat,
           elevation: terrainElev,
-          precipitation: inspected.precipitation ?? 0,
+          precipitation: inspected.precipitation,
           screenX,
           screenY,
         });
@@ -379,7 +381,7 @@ export const MapViewer: React.FC<MapViewerProps> = ({
               lng,
               lat,
               elevation: fetchedElev,
-              precipitation: inspectLocationValues(lng, lat).precipitation ?? 0,
+              precipitation: inspectLocationValues(lng, lat).precipitation,
               screenX,
               screenY,
             });
@@ -471,7 +473,8 @@ export const MapViewer: React.FC<MapViewerProps> = ({
     } else {
       map.once('load', applyRainLayer);
     }
-  }, [rainLayerData]);
+    return () => { map.off('load', applyRainLayer); };
+  }, [rainLayerData, mapReady]);
 
   // クリック地点の3Dピンマーカー表示更新
   useEffect(() => {

@@ -1,3 +1,4 @@
+import { useUpdateBlocker } from '../lib/updateGuard';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowRightLeft,
@@ -24,10 +25,10 @@ import {
   type ImportMode,
 } from '../lib/favoritesTransfer';
 import {
-  clearFavoritesUndoSnapshot,
   loadFavoritesUndoSnapshot,
-  saveFavoritesUndoSnapshot,
+  type StorageOperationResult,
 } from '../lib/favoritesStorage';
+import { clearPendingFavoritesPayload } from '../lib/favoritesTransfer';
 import { shareOrCopyUrl } from '../lib/urlSync';
 import { QrCode } from './QrCode';
 
@@ -40,7 +41,7 @@ export interface PendingFavoritesImport {
 interface FavoritesSyncDialogProps {
   favorites: PresetLocation[];
   /** 新しいお気に入り一覧を保存・反映する */
-  onApplyFavorites: (next: PresetLocation[]) => void;
+  onApplyFavorites: (action: { kind: 'import'; items: PresetLocation[]; mode: ImportMode; expected: PresetLocation[] } | { kind: 'undo' }) => Promise<StorageOperationResult & { restoredItems?: PresetLocation[] }>;
   onClose: () => void;
   /** 同期URLから起動した場合などに、最初から取り込み確認を表示する */
   initialImport?: PendingFavoritesImport | null;
@@ -81,6 +82,7 @@ export const FavoritesSyncDialog: React.FC<FavoritesSyncDialogProps> = ({
   lastBackupAt,
   onBackupExported,
 }) => {
+  useUpdateBlocker(true);
   const [pendingImport, setPendingImport] = useState<PendingFavoritesImport | null>(initialImport);
   const [importMode, setImportMode] = useState<ImportMode>('merge');
   const [status, setStatus] = useState<StatusMessage>(
@@ -89,8 +91,21 @@ export const FavoritesSyncDialog: React.FC<FavoritesSyncDialogProps> = ({
   const [syncUrl, setSyncUrl] = useState<string | null>(null);
   const [isBuildingUrl, setIsBuildingUrl] = useState(false);
   const [urlCopied, setUrlCopied] = useState(false);
+  const busyRef = useRef(false);
+  const [busy, setBusy] = useState(false);
+  const closeSafely = useCallback(() => { if (!busyRef.current) onClose(); }, [onClose]);
   const [pasteText, setPasteText] = useState('');
-  const [undoSnapshot, setUndoSnapshot] = useState(() => loadFavoritesUndoSnapshot());
+  const [undoSnapshot, setUndoSnapshot] = useState<import('../lib/favoritesStorage').FavoritesUndoData | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    loadFavoritesUndoSnapshot().then((res) => {
+      if (mounted) setUndoSnapshot(res);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
 
@@ -117,12 +132,12 @@ export const FavoritesSyncDialog: React.FC<FavoritesSyncDialogProps> = ({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
-        onClose();
+        closeSafely();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
+  }, [closeSafely]);
 
   useEffect(() => {
     dialogRef.current?.focus();
@@ -147,7 +162,7 @@ export const FavoritesSyncDialog: React.FC<FavoritesSyncDialogProps> = ({
         text:
           outcome === 'shared'
             ? `${favorites.length}件のお気に入りをバックアップファイルとして共有しました。`
-            : `${favorites.length}件のお気に入りをバックアップファイルに保存しました。`,
+            : `${favorites.length}件のお気に入りのダウンロードを開始しました。`,
       });
     } catch {
       setStatus({ kind: 'error', text: 'バックアップファイルの書き出しに失敗しました。' });
@@ -228,32 +243,51 @@ export const FavoritesSyncDialog: React.FC<FavoritesSyncDialogProps> = ({
     }
   }, [pasteText]);
 
-  const handleConfirmImport = useCallback(() => {
-    if (!pendingImport || !preview) return;
-    saveFavoritesUndoSnapshot(favorites);
-    setUndoSnapshot(loadFavoritesUndoSnapshot());
-    onApplyFavorites(preview.next);
-    const parts: string[] = [];
-    if (preview.added) parts.push(`追加 ${preview.added}件`);
-    if (preview.updated) parts.push(`更新 ${preview.updated}件`);
-    if (preview.unchanged) parts.push(`変更なし ${preview.unchanged}件`);
-    if (preview.removed) parts.push(`削除 ${preview.removed}件`);
-    setStatus({
-      kind: 'success',
-      text: `取り込みが完了しました（${parts.join('・') || '変更なし'}）。現在 ${preview.next.length}件です。`,
-    });
-    setPendingImport(null);
-  }, [favorites, onApplyFavorites, pendingImport, preview]);
+  const handleConfirmImport = useCallback(async () => {
+    if (!pendingImport || !preview || busyRef.current) return;
+    busyRef.current = true; setBusy(true);
+    try {
+      const res = await onApplyFavorites({ kind: 'import', items: pendingImport.items, mode: importMode, expected: favorites });
+      if (!res.success) {
+        setStatus({
+          kind: 'error',
+          text: res.message || '取り込みの保存に失敗しました。以前のデータは保持されています。',
+        });
+        return;
+      }
+      setUndoSnapshot(await loadFavoritesUndoSnapshot());
+      clearPendingFavoritesPayload();
+      const parts: string[] = [];
+      if (preview.added) parts.push(`追加 ${preview.added}件`);
+      if (preview.updated) parts.push(`更新 ${preview.updated}件`);
+      if (preview.unchanged) parts.push(`変更なし ${preview.unchanged}件`);
+      if (preview.removed) parts.push(`削除 ${preview.removed}件`);
+      setStatus({
+        kind: 'success',
+        text: `取り込みが完了しました（${parts.join('・') || '変更なし'}）。現在 ${res.restoredItems?.length ?? preview.next.length}件です。`,
+      });
+      setPendingImport(null);
+    } catch {
+      setStatus({ kind: 'error', text: '取り込み処理中にエラーが発生しました。' });
+    } finally { busyRef.current = false; setBusy(false); }
+  }, [onApplyFavorites, pendingImport, preview, importMode, favorites]);
 
-  const handleUndo = useCallback(() => {
-    const snapshot = loadFavoritesUndoSnapshot();
-    if (!snapshot) return;
-    onApplyFavorites(snapshot.items);
-    clearFavoritesUndoSnapshot();
+  const handleUndo = useCallback(async () => {
+    if (busyRef.current) return;
+    busyRef.current = true; setBusy(true);
+    const res = await onApplyFavorites({ kind: 'undo' }).catch(() => ({ success: false, message: '復元できませんでした。', restoredItems: undefined }));
+    busyRef.current = false; setBusy(false);
+    if (!res.success || !res.restoredItems) {
+      setStatus({
+        kind: 'error',
+        text: res.message || '元に戻す操作に失敗しました。退避データは維持されています。',
+      });
+      return;
+    }
     setUndoSnapshot(null);
     setStatus({
       kind: 'info',
-      text: `取り込み前の状態（${snapshot.items.length}件）に戻しました。`,
+      text: `取り込み前の状態（${res.restoredItems.length}件）に戻しました。`,
     });
   }, [onApplyFavorites]);
 
@@ -265,6 +299,7 @@ export const FavoritesSyncDialog: React.FC<FavoritesSyncDialogProps> = ({
     <div
       role="dialog"
       aria-modal="true"
+      aria-busy={busy}
       aria-labelledby="favorites-sync-title"
       style={{
         paddingTop: 'calc(var(--safe-top) + 0.75rem)',
@@ -274,7 +309,7 @@ export const FavoritesSyncDialog: React.FC<FavoritesSyncDialogProps> = ({
       }}
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-sm"
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) closeSafely();
       }}
     >
       <div
@@ -297,7 +332,7 @@ export const FavoritesSyncDialog: React.FC<FavoritesSyncDialogProps> = ({
           <button
             type="button"
             aria-label="閉じる"
-            onClick={onClose}
+            onClick={closeSafely}
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 shrink-0"
           >
             <X className="w-4 h-4" />
@@ -341,7 +376,7 @@ export const FavoritesSyncDialog: React.FC<FavoritesSyncDialogProps> = ({
               )}
             </ul>
 
-            <fieldset className="space-y-1.5">
+            <fieldset disabled={busy} className="space-y-1.5">
               <legend className="sr-only">取り込み方法</legend>
               {(
                 [
@@ -398,14 +433,18 @@ export const FavoritesSyncDialog: React.FC<FavoritesSyncDialogProps> = ({
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
-                onClick={() => setPendingImport(null)}
+                onClick={() => {
+                  clearPendingFavoritesPayload();
+                  setPendingImport(null);
+                }}
                 className={`${primaryBtn} bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200`}
               >
                 キャンセル
               </button>
               <button
                 type="button"
-                onClick={handleConfirmImport}
+                disabled={busy}
+                  onClick={handleConfirmImport}
                 className={`${primaryBtn} ${
                   importMode === 'replace'
                     ? 'bg-rose-500/80 hover:bg-rose-500 text-white'
@@ -428,7 +467,7 @@ export const FavoritesSyncDialog: React.FC<FavoritesSyncDialogProps> = ({
                   お気に入り {favorites.length}件をファイルに保存します。機種変更やデータ消失に備えて定期的に保存してください。
                 </p>
                 <p className="text-slate-500 mt-0.5">
-                  最終バックアップ: {formatDateTime(lastBackupAt) || 'まだ保存していません'}
+                  書き出し操作日時: {formatDateTime(lastBackupAt) || 'まだ保存していません'}
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-2">
@@ -548,7 +587,8 @@ export const FavoritesSyncDialog: React.FC<FavoritesSyncDialogProps> = ({
             {undoSnapshot && (
               <button
                 type="button"
-                onClick={handleUndo}
+                disabled={busy}
+                  onClick={handleUndo}
                 className={`${primaryBtn} w-full bg-transparent hover:bg-slate-800 border border-dashed border-slate-600 text-slate-300`}
               >
                 <RotateCcw className="w-4 h-4" />

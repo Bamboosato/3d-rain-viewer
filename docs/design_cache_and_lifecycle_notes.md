@@ -1,0 +1,88 @@
+# 3D Rain Viewer キャッシュ・ライフサイクル設計メモ
+
+更新: 2026-11-09。第2次追加修正指示書 RE-01～14 の実装に合わせて改訂。
+本書の「保存成功」はブラウザAPIのcommit完了を指す。実機のOSメモリ圧迫試験やディスク障害を検証したという意味ではない。
+
+## 1. 所有範囲、期限、上限
+
+| 対象 | 所有者・保存先 | 方針・上限 |
+|---|---|---|
+| HTML / JS / CSS / icon | SW、`rain3d-shell-v13` | Network-First。100件・40MiB。ビルド時にHTMLと全JS/CSSをprecacheへ列挙。更新前の画面用に直前のshell v12も保持し、それより古いshellを整理 |
+| JMA画像・JSON | SW、`rain3d-runtime-v13` | 画像はSWR、JSONはNetwork-First。400件・40MiB。正常HTTP 200だけ保存 |
+| 背景地図・標高 | TileCache、OPFSと`rain3d-opfs-fallback-v1` | rasterは5分、terrainは24時間で再検証。OPFS成功時は代替への重複書込みを行わない |
+| TileCacheメモリ | ソース区分ごとのLRU | raster 180件 / terrain 120件、各16MiB。利用者へは独立したArrayBufferを返す |
+| TileCache永続 | OPFS / 代替Cacheそれぞれの区分 | raster 1200件・80MiB、terrain 600件・40MiB。世代コピーも件数・バイトへ含める。これは両バックエンド合計80/40MiBという意味ではない |
+| 合成フレーム | App、`frameBudget.ts` | 両ソース合計10件・25MiB。グリッド、SDKデータ、画像URL文字列、デコードRGBA相当を計上。表示中を保護。OS/GPU全体の実測値ではない |
+| カタログ | JMA / GSMaP取得層、localStorage | 起動、前面で5分間隔、online、前面復帰、手動再試行。同時取得はPromise共有。保存日時付きfallback |
+| お気に入り・Undo | favoritesStorage、IDB / localStorage | cache整理対象外。新規100件・50文字。旧上限超過データは互換読込し、情報を残した更新・削除を許可 |
+
+容量整理は古い世代から行う。Quota時は件数上限未満でも整理し、1回だけ保存を再試行する。永続書込み・整理は区分ごとのキューで実行する。待機書込みは各32件までとし、超過時も表示用メモリは利用できる。永続APIが停止した場合は期限で待機を打ち切り、後続整理の削除も期限で止める。停止中のAPIに対して瞬間的な容量上限を保証するものではない。
+
+## 2. お気に入りの正本と移行
+
+`FavoritesState`は`version: 2`、単調増加`revision`、`favorites`、`undo`、`lastBackupAt`を持つ。
+
+- IndexedDB: `rain3d_db` / `kv_store` / `favorites_state_v2`。レコードと旧IDBキーの互換コピーを同じtransactionで確定する。
+- localStorage: `rain3d_favorite_atomic_state_v1`に同じレコードを1回の`setItem`で確定する。旧localStorage一覧・Undoキーは移行元として残し、逐次更新・rollback対象にしない。
+- 起動時は利用可能なレコードの最大revisionを採用する。同世代の旧形式はIDBを優先する。`[]`も正当な保存結果である。
+- 正本のいずれかがcommit済みなら成功。片側のミラー失敗を、確定済みデータの失敗とは報告しない。両方失敗した場合は変更前を保持して失敗を返す。
+- 初期復元をAppの更新キューの先頭に置く。通常追加・編集・削除・取り込み・Undoは同じキューで、直前の確定一覧から計算する。取り込みの一覧とUndo、Undoの復元と消費も同じcommitに含む。
+- 旧形式は読込時に切り捨てない。初回成功commitでv2へ移行し、移行元は残す。旧500件や長い名前を保持できるが、新たに上限を超える項目・名前は追加できない。
+- 不正な保存内容・Undo・読出し拒否は空一覧への上書きに進めない。画面へ警告し、元の保存文字列を救済用JSONとして書き出せる。
+- JSON / 同期URLの不正項目や長すぎる名前は、無警告の除外・短縮をせず取り込みエラーにする。取り込み上限超過は確定しない。
+
+書き出し結果は「共有」「ダウンロード開始」「キャンセル」を区別する。保存完了を検出できないため日時は「書き出し操作日時」とする。日時の永続化に失敗した場合も、そのことを通知する。
+
+## 3. 画像・地点値・要求世代
+
+初期表示、時刻選択、ソース切替、カタログ更新に要求世代を付ける。ソース・時刻の選択はURLへ即時反映し、直後の再読み込みでも選択を維持する。カメラの連続移動だけ300msデバウンスする。成功だけでなくcatch/finallyも照合する。GSMaP Inspectorは準備済みSDKで同期生成し、画像採用直後に旧Inspectorを読まない。JMAへの切替ではGSMaP Inspectorへfallbackしない。
+
+MapViewerは地図のload完了をstateとして扱い、その時点の最新画像を適用する。古いload listenerはeffectのcleanupで外す。初期化前に到着した画像も反映する。
+
+部分欠落は再選択で再取得する。全失敗は正常cacheへ入れず、旧画像を残す場合は実表示時刻とエラーを示す。JMAは正しい256×256画像を要求し、透明な無降水領域を0、未取得タイル・未知RGBを欠測値65535へ分ける。既知のRGBは[気象庁配色指針 表2-1](https://www.jma-net.go.jp/saga/shosai/HPColorGuide_202007.pdf)を基に分類する。画像からの雨量は色階級の代表値であり、元の数値GPVを復号した精密値ではない。GSMaPの非有限統計を正常0へ変換しない。
+
+## 4. カタログ
+
+JMA日時は12桁または14桁に限定し、Date.UTC変換後の年月日時分秒を照合する。2月31日・13桁等を拒否する。保存date、dataset、形式versionを検証し、フィルタ後に選択位置を決め直す。表示ラベルも日時から再構成する。
+
+N1が主経路。N2 / rasrfに失敗した場合は実況を残して部分障害を通知する。更新時は選択した日時キーを維持し、その日時がなくなった場合はカタログの既定位置を選ぶ。保存済みカタログと更新失敗・取得日時をUIへ出す。
+
+GSMaPは更新時にImageCollectionを再初期化する。成功カタログを`rain3d_gsmap_catalog_v1`へ保存し、取得不能時は検証済みの保存カタログを利用する。
+
+## 5. キーと永続世代
+
+- JMA: `jma:{dataset}:{basetime}:{validtime}:v1`
+- GSMaP: `gsmap:Gauge.v6_hourly:126,28,146,46:560x476:{observedISO}:v2`
+- AW3D: `aw3d_v3.2_rgb-v3_{tileSize}_{z}_{x}_{y}`。SDK生成器もtileSizeごとに分離する。
+- OPFS / 代替Cache: 従来のキーに単調増加の保存世代を付けた不変のファイル／URL。旧形式も読める。
+
+同じファイルを後着の旧write/closeで上書きしない。再起動時もファイル名の世代から最新版を選び、旧closeの遅いlastModifiedを最新版と誤認しない。OPFSと代替の双方を読める場合は更新日時を比較し、メモリ昇格で日時を現在へ書き換えない。成功した再取得だけが鮮度を更新する。
+
+OPFSのnull解決した初期化Promiseは破棄する。書込APIがない環境では空ファイルを増やさず代替へ移る。createWritableが遅れて成功した場合は不要なstreamをabortする。
+
+## 6. キャンセル、取得期限、先読み
+
+- 同一タイルの取得は共有する。1利用者cancelでは他を止めず、全員cancelでは登録解除・abortする。完了時のlistener / subscriberを解放し、旧finallyが新しい登録を消さないよう同一性確認する。
+- TileCache共有取得は20秒、HTTPタイルは1試行5.5秒（本文を含む）、retryは1回。HTTP 429はRetry-Afterを尊重し、待機中cancelも受け付ける。恒久4xxは再試行しない。
+- OPFS / 代替操作の待機は2.5秒。SDK初期化は10秒、データ取得は15秒、Appフレーム要求は25秒。SDK内部でキャンセルできない処理も、期限後の結果を採用しない。
+- AW3DはSDKの要求単位signalへ伝播し、共有生成器のglobal abortを切り替えない。周辺地名取得も本文完了まで期限内に含める。
+- フレーム取得は合計2件まで、先読みは1件まで。表示要求を優先し、先読み中の同じフレームが選択されたら表示要求へ昇格する。背景化・ソース変更で不要な先読みを中止する。
+- 画像合成後のcanvasを解放する。LRU参照時更新と両ソースの合計予算で保持量を制御する。
+
+## 7. SW更新
+
+開発モードでは新規SWを登録せず、production buildではlocalhostでも本番と同じ登録経路を通す。開発時の他用途cache全削除を行わない。
+
+初回controllerchangeでreloadしない。インストール済みの待機Worker、または更新後のcontrollerchangeを検知して更新ボタンを表示する。待機Workerは安全な利用者操作からmessageで有効化を再要求し、controllerchange後に再読み込みする。利用者操作なしではreloadしない。通常編集・保存キュー・同期ダイアログ・hash/session取り込み待ちがある間はボタンを無効化し、操作終了後に利用者が適用できる。確定・キャンセル・閉じるで保留payloadを消す。
+
+`vite.config.ts`がビルド成果物からprecache対象を生成し、HTML、メインJS/CSS、遅延読込QRモジュールを同じビルドから保存する。直前のshellを保持して旧画面の参照を保護する。runtime、OPFS代替、お気に入りの所有境界は別である。
+
+fetchイベントの`respondWith`と`waitUntil`はイベント処理中に登録する。waitUntilは背景再検証と保存まで追跡し、保存失敗で成功したHTTP応答を失わせない。
+
+## 8. 診断と検証
+
+`diagnostics.ts`の許可項目だけを最大100件メモリ保持し、`rain3d-diagnostic`イベントを送る。処理、保存先、成否、件数・バイト、時間、要求世代、分類を必要な呼出し箇所で記録する。お気に入り名、座標、入力JSON、同期hash、URL、例外本文は記録しない。TileCacheのmemory-onlyは画面通知へ接続する。
+
+テストでは正常・異常・境界・状態遷移を分ける。API境界をfixture化し、実App / 保存関数 / ダイアログ / MapViewer / SWハンドラーを通す。再起動確認ではmodule cacheも破棄し、重要な競合は単独・通しで実施する。
+
+E2Eは修正対象ケースをChromium / WebKitでworkers=1として実行する。専用ローカルサーバーが外部API・SDKだけを合成fixtureへ置換し、production buildのSW、CacheStorage、IndexedDB、UIを利用する。初回SW更新確認と次の更新が結合される場合に備えて更新確認を完了させる。ChromiumでskipWaiting完了後もinstalled/waitingが残る状態を記録したため、待機通知・手動適用も扱い、更新通知とactivate後の整理完了を別々に検証する。実行結果・T対応表は[実装報告](implementation-followup-20261109.md)を参照する。
