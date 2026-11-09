@@ -1,0 +1,26 @@
+{
+  "chromium": {
+    "before": {
+      "tile-write/opfs/success": 91,
+      "tile-write/memory/deferred": 147,
+      "tile-read/memory/hit": 2,
+      "tile-write//memory-only": 1
+    },
+    "after": {
+      "tile-read/opfs/hit": 32,
+      "tile-read/memory/success": 32
+    }
+  },
+  "webkit": {
+    "before": {
+      "tile-write/cache/success": 23,
+      "tile-write/memory/deferred": 138,
+      "tile-read/memory/hit": 11,
+      "tile-write//memory-only": 1
+    },
+    "after": {
+      "tile-read/cache/hit": 10,
+      "tile-read/memory/success": 10
+    }
+  }
+}

@@ -181,6 +181,7 @@ async function weatherSwResponse(mode: 'open-failure' | 'put-failure') {
     fetch: fetcher,
     URL,
     Response,
+    Headers,
   });
   let response: Promise<Response> | undefined;
   handlers.fetch({

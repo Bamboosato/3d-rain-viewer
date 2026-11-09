@@ -1,0 +1,19 @@
+{
+  "reviewDateJST": "2026-11-10",
+  "base": "710205415f3474a01bc497b28192a127df6fb221",
+  "reviewedCommit": "dda9efc2de216ca9f93efcee7418034db6c10ac4",
+  "reportedDevice": "iPhone 13 Pro Max / PWA / standard OSM map",
+  "iOSVersion": "not provided",
+  "actualDeviceConnected": false,
+  "method": "real exported TS functions and actual SW scripts with deterministic API-boundary IO counters; virtual deadlines",
+  "testCommand": "npx vitest run --config output/review-20261110-performance/vitest.config.mjs --reporter=default --reporter=json --outputFile=output/review-20261110-performance/results.json",
+  "reproductions": 8,
+  "runtime": "Node v24.22.1 / Vitest 5.1.0 / happy-dom on Windows",
+  "hashes": {
+    "src\\lib\\opfsTileCache.ts": "260e7f099241cb5bc007dfee98def7d36c23dc633e1675185a8d522188997791",
+    "src\\lib\\maplibreHelper.ts": "5ffa4310a90a973a7f343dfe638c0ba505bce468e0e4dcba25c0981aa44e62f2",
+    "src\\App.tsx": "42b3426b1b85354f983a691ee4256c5319d54b71ac82042f69dcc48b5f017b95",
+    "public\\sw.js": "2c0e6e75e0b6f96cca351a3d4115264c22ac079fd41e0d60f17435b7d094f4d8",
+    "output\\review-20261110-performance\\performance.test.ts": "ee53a6b154a6c2bf426cf41a754dcdd6eec508d585dfd3e6a7f68501254a7bad"
+  }
+}

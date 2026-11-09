@@ -61,7 +61,16 @@ const inFlightMap = new Map<string, InFlightEntry>();
 const inFlightRevalidations = new Set<string>();
 export const MAX_PERSISTENT_BYTES: Record<TileCategory, number> = { raster: 80 * 1024 * 1024, terrain: 40 * 1024 * 1024 };
 const persistentQueues: Record<TileCategory, Promise<unknown>> = { raster: Promise.resolve(), terrain: Promise.resolve() };
+const deferredWrites: Record<TileCategory, Map<string, number>> = { raster: new Map(), terrain: new Map() };
 const pendingWrites: Record<TileCategory, number> = { raster: 0, terrain: 0 };
+// A navigation must not drain the old document's write queue into its replacement.
+let cacheClosed = false;
+if (typeof window !== 'undefined') window.addEventListener('pagehide', event => {
+  if (event.persisted) return; // A back/forward-cache document can resume.
+  cacheClosed = true;
+  deferredWrites.raster.clear(); deferredWrites.terrain.clear();
+  for (const request of inFlightMap.values()) request.abortController.abort();
+});
 let opfsWritableSupported = typeof FileSystemFileHandle === 'undefined' || typeof FileSystemFileHandle.prototype.createWritable === 'function';
 let lastGeneration = 0;
 const generations = new Map<string, number>();
@@ -168,167 +177,170 @@ function setMemoryCache(
   }
 }
 
-/**
- * OPFSおよび代替Cache Storageから読み出し。
- * 両方にデータがある場合は最新の更新日時を持つものを優先採用する (FIX-11)。
- */
-async function readFromPersistentCache(
-  category: TileCategory,
-  key: string
-): Promise<{ bytes: Uint8Array; updatedAt: number } | null> {
-  const fileName = toSafeFileName(key);
-
-  let opfsData: { bytes: Uint8Array; updatedAt: number } | null = null;
-  let fallbackData: { bytes: Uint8Array; updatedAt: number } | null = null;
-
-  // 1. OPFS 読み出し
+// One shared inventory per backend/category, rather than one directory scan per tile.
+// New entries carry size in their name/header. Legacy sizes are audited in small batches.
+interface DiskEntry { name: string; base: string; updatedAt: number; size?: number }
+interface DiskIndex { entries: Map<string, DiskEntry>; byKey: Map<string, DiskEntry[]>; bytes: number }
+const indexes: Record<'opfs' | 'cache', Partial<Record<TileCategory, Promise<DiskIndex>>>> = { opfs: {}, cache: {} };
+const emptyIndex = (): DiskIndex => ({ entries: new Map(), byKey: new Map(), bytes: 0 });
+function addEntry(index: DiskIndex, entry: DiskEntry) {
+  removeEntry(index, entry.name);
+  index.entries.set(entry.name, entry); index.bytes += entry.size ?? 0;
+  const versions = index.byKey.get(entry.base) ?? [];
+  versions.push(entry); versions.sort((a, b) => b.updatedAt - a.updatedAt);
+  index.byKey.set(entry.base, versions);
+}
+function removeEntry(index: DiskIndex, name: string) {
+  const old = index.entries.get(name); if (!old) return;
+  index.bytes -= old.size ?? 0; index.entries.delete(name);
+  const versions = index.byKey.get(old.base)?.filter(e => e.name !== name) ?? [];
+  if (versions.length) index.byKey.set(old.base, versions); else index.byKey.delete(old.base);
+}
+function setEntrySize(index: DiskIndex, entry: DiskEntry, size: number) {
+  index.bytes += size - (entry.size ?? 0); entry.size = size;
+}
+function diskEntry(name: string): DiskEntry | null {
+  const match = /^(.*\.bin)(?:\.(\d+)(?:-(\d+))?)?$/.exec(name);
+  if (!match) return null;
+  return { name, base: match[1], updatedAt: Number(match[2]) || 0, size: match[3] === undefined ? undefined : Number(match[3]) };
+}
+function getDiskIndex(backend: 'opfs' | 'cache', category: TileCategory): Promise<DiskIndex> {
+  const existing = indexes[backend][category]; if (existing) return existing;
+  const task = (async () => {
+    const index = emptyIndex();
+    if (backend === 'opfs') {
+      const dir = await getCategoryOpfsDir(category); if (!dir) throw new Error('OPFS unavailable');
+      const iterator = (dir as any).entries?.()[Symbol.asyncIterator]() as AsyncIterator<[string, FileSystemHandle]> | undefined;
+      if (!iterator) return index; // Direct legacy lookup also supports older implementations.
+      const deadline = performance.now() + OPFS_OP_TIMEOUT_MS;
+      while (performance.now() < deadline) {
+        const item = await bounded(iterator.next(), Math.max(1, deadline - performance.now()));
+        if (item.done) return index;
+        const entry = diskEntry(item.value[0]); if (entry) addEntry(index, entry);
+      }
+      throw new Error('Inventory deadline');
+    }
+    if (typeof caches === 'undefined') throw new Error('Cache unavailable');
+    const cache = await bounded(caches.open(FALLBACK_CACHE_NAME), OPFS_OP_TIMEOUT_MS);
+    const keys = await bounded(cache.keys(), OPFS_OP_TIMEOUT_MS);
+    const prefix = `https://opfs-fallback.local/${category}/`;
+    for (const request of keys) if (request.url.startsWith(prefix)) {
+      const entry = diskEntry(request.url.slice(prefix.length)); if (entry) addEntry(index, entry);
+    }
+    return index;
+  })();
+  indexes[backend][category] = task;
+  void task.catch(() => { if (indexes[backend][category] === task) delete indexes[backend][category]; });
+  return task;
+}
+async function readDisk(backend: 'opfs' | 'cache', category: TileCategory, key: string, signal?: AbortSignal): Promise<MemoryCacheEntry | null> {
   try {
-    const dir = await getCategoryOpfsDir(category);
-    if (dir) {
-      let selected = fileName;
-      let storedAt = 0;
-      const entries = (dir as FileSystemDirectoryHandle & { entries?: () => AsyncIterableIterator<[string, FileSystemHandle]> }).entries;
-      if (entries) await bounded((async () => {
-        for await (const [name] of entries.call(dir)) {
-          if (name.startsWith(fileName + '.')) {
-            const generation = Number(name.slice(fileName.length + 1));
-            const candidate = await (await dir.getFileHandle(name)).getFile();
-            if (candidate.size > 100 && Number.isFinite(generation) && generation > storedAt) { selected = name; storedAt = generation; }
-          }
+    const index = await bounded(getDiskIndex(backend, category), OPFS_OP_TIMEOUT_MS, signal).catch(error => {
+      if (signal?.aborted) throw error;
+      // Inventory failure does not invalidate a directly addressable legacy tile.
+      return emptyIndex();
+    });
+    const base = toSafeFileName(key);
+    const versions = index.byKey.get(base) ?? [{ name: base, base, updatedAt: 0 }];
+    for (const entry of [...versions]) {
+      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+      try {
+        let bytes: Uint8Array; let updatedAt: number;
+        if (backend === 'opfs') {
+          const dir = await bounded(getCategoryOpfsDir(category), OPFS_OP_TIMEOUT_MS, signal); if (!dir) return null;
+          const handle = await bounded(dir.getFileHandle(entry.name), OPFS_OP_TIMEOUT_MS, signal);
+          const file = await bounded(handle.getFile(), OPFS_OP_TIMEOUT_MS, signal);
+          if (file.size <= 100) continue;
+          bytes = new Uint8Array(await bounded(file.arrayBuffer(), OPFS_OP_TIMEOUT_MS, signal));
+          updatedAt = entry.updatedAt || file.lastModified || 0;
+        } else {
+          const cache = await bounded(caches.open(FALLBACK_CACHE_NAME), OPFS_OP_TIMEOUT_MS, signal);
+          const response = await bounded(cache.match(`https://opfs-fallback.local/${category}/${entry.name}`), OPFS_OP_TIMEOUT_MS, signal);
+          if (!response?.ok) continue;
+          bytes = new Uint8Array(await bounded(response.arrayBuffer(), OPFS_OP_TIMEOUT_MS, signal));
+          updatedAt = Number(response.headers.get('x-cached-at')) || entry.updatedAt;
         }
-      })(), OPFS_OP_TIMEOUT_MS);
-      const fileHandle = await withTimeout(
-        dir.getFileHandle(selected, { create: false }),
-        OPFS_OP_TIMEOUT_MS
-      );
-      if (fileHandle) {
-        const file = await withTimeout(fileHandle.getFile(), OPFS_OP_TIMEOUT_MS);
-        if (file && file.size > 100) {
-          const ab = await withTimeout(file.arrayBuffer(), OPFS_OP_TIMEOUT_MS);
-          if (ab) {
-            opfsData = {
-              bytes: new Uint8Array(ab),
-              updatedAt: storedAt || file.lastModified || 0,
-            };
-          }
-        }
-      }
+        if (bytes.byteLength <= 100 || signal?.aborted) continue;
+        if (!index.entries.has(entry.name)) addEntry(index, entry);
+        setEntrySize(index, entry, bytes.byteLength);
+        diagnostic({ operation: 'tile-read', backend, outcome: 'hit', bytes: bytes.byteLength });
+        return { bytes, updatedAt };
+      } catch { if (signal?.aborted) return null; }
     }
-  } catch {
-    // キャッシュミスとして扱う
-  }
-
-  // 2. Cache Storage フォールバック読み出し
-  if (typeof caches !== 'undefined') {
-    try {
-      const cache = await bounded(caches.open(FALLBACK_CACHE_NAME), OPFS_OP_TIMEOUT_MS);
-      const baseUrl = `https://opfs-fallback.local/${category}/${fileName}`;
-      const keys = await bounded(cache.keys(), OPFS_OP_TIMEOUT_MS);
-      const versions = keys.filter(request => request.url.startsWith(baseUrl + '.')).sort((a,b) => Number(b.url.slice(baseUrl.length+1)) - Number(a.url.slice(baseUrl.length+1)));
-      const res = await bounded(cache.match(versions[0] ?? baseUrl), OPFS_OP_TIMEOUT_MS);
-      if (res && res.ok) {
-        const ab = await bounded(res.arrayBuffer(), OPFS_OP_TIMEOUT_MS);
-        if (ab.byteLength > 100) {
-          const updatedAtHeader = res.headers.get('x-cached-at');
-          const updatedAt = updatedAtHeader ? Number(updatedAtHeader) : 0;
-          fallbackData = {
-            bytes: new Uint8Array(ab),
-            updatedAt: updatedAt || 0,
-          };
-        }
-      }
-    } catch {
-      // ignore
-    }
-  }
-
-  // 3. 最新のコピーを選択 (FIX-11)
-  let chosen: { bytes: Uint8Array; updatedAt: number } | null = null;
-  if (opfsData && fallbackData) {
-    chosen = fallbackData.updatedAt > opfsData.updatedAt ? fallbackData : opfsData;
-  } else {
-    chosen = opfsData || fallbackData;
-  }
-
-  if (chosen) {
-    lastGeneration = Math.max(lastGeneration, chosen.updatedAt);
-    setMemoryCache(category, key, chosen.bytes, chosen.updatedAt);
-  }
-
+  } catch { /* A missing or unavailable store must not prevent another store from responding. */ }
+  return null;
+}
+async function readFromPersistentCache(category: TileCategory, key: string, signal?: AbortSignal): Promise<MemoryCacheEntry | null> {
+  const started = performance.now();
+  const copies: MemoryCacheEntry[] = [];
+  let finish!: (value: MemoryCacheEntry | null) => void; let remaining = 2;
+  const available = new Promise<MemoryCacheEntry | null>(resolve => finish = resolve);
+  const reads = (['opfs', 'cache'] as const).map(backend => readDisk(backend, category, key, signal).then(copy => {
+    if (copy) { copies.push(copy); finish(copy); }
+    if (--remaining === 0) finish(null);
+  }));
+  const first = await bounded(available, OPFS_OP_TIMEOUT_MS + 100, signal).catch(error => {
+    if (signal?.aborted) throw error; return null;
+  });
+  if (!first) return null;
+  // Compare responsive stores, but never hold a usable tile behind a stalled secondary store.
+  await bounded(Promise.all(reads), 25, signal).catch(error => { if (signal?.aborted) throw error; });
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+  const chosen = copies.reduce((best, copy) => copy.updatedAt > best.updatedAt ? copy : best);
+  lastGeneration = Math.max(lastGeneration, chosen.updatedAt);
+  setMemoryCache(category, key, chosen.bytes, chosen.updatedAt);
+  diagnostic({ operation: 'tile-read', backend: 'memory', outcome: 'success', durationMs: performance.now() - started });
+  // A late newer copy may improve the next read, but cannot overwrite a later network result.
+  void Promise.all(reads).then(() => {
+    if (signal?.aborted) return;
+    const newest = copies.reduce((best, copy) => copy.updatedAt > best.updatedAt ? copy : best, chosen);
+    const mem = memoryCaches[category].get(key);
+    if (mem && newest.updatedAt > mem.updatedAt) setMemoryCache(category, key, newest.bytes, newest.updatedAt);
+  });
   return chosen;
 }
-
-/**
- * OPFSディレクトリ内の上限整理 (LRU)
- */
-async function pruneOpfsDirectoryIfNeeded(category: TileCategory, force = false): Promise<void> {
-  const deadline = performance.now() + OPFS_OP_TIMEOUT_MS;
-  const dir = await getCategoryOpfsDir(category);
-  if (!dir) return;
-
-  try {
-    const entries: Array<{ name: string; lastModified: number; size: number }> = [];
-    const iterableDir = dir as FileSystemDirectoryHandle & {
-      entries?: () => AsyncIterableIterator<[string, FileSystemHandle]>;
-    };
-    if (typeof iterableDir.entries !== 'function') return;
-
-    for await (const [name, handle] of iterableDir.entries()) {
-      if (handle.kind === 'file') {
-        try {
-          const file = await (handle as FileSystemFileHandle).getFile();
-          entries.push({ name, lastModified: Number(name.split(".bin.")[1]) || file.lastModified || 0, size: file.size });
-        } catch {
-          entries.push({ name, lastModified: 0, size: 0 });
-        }
+async function prunePersistent(category: TileCategory, backend: 'opfs' | 'cache', force = false): Promise<void> {
+  const index = await getDiskIndex(backend, category);
+  const dir = backend === 'opfs' ? await getCategoryOpfsDir(category) : null;
+  const cache = backend === 'cache' ? await bounded(caches.open(FALLBACK_CACHE_NAME), OPFS_OP_TIMEOUT_MS) : null;
+  const prefix = `https://opfs-fallback.local/${category}/`;
+  const deadline = performance.now() + 20;
+  // At most four unknown legacy sizes per save; never fan out over all stored bodies.
+  let audited = 0;
+  for (const entry of index.entries.values()) {
+    if (entry.size !== undefined) continue;
+    if (audited++ >= 4 || performance.now() >= deadline) break;
+    try {
+      if (dir) {
+        const file = await bounded((await bounded(dir.getFileHandle(entry.name), OPFS_OP_TIMEOUT_MS)).getFile(), OPFS_OP_TIMEOUT_MS);
+        setEntrySize(index, entry, file.size);
+      } else if (cache) {
+        const response = await bounded(cache.match(prefix + entry.name), OPFS_OP_TIMEOUT_MS);
+        const header = response?.headers?.get('x-rain3d-bytes');
+        const size = header ? Number(header) : response ? (await bounded(response.arrayBuffer(), OPFS_OP_TIMEOUT_MS)).byteLength : 0;
+        if (Number.isFinite(size)) setEntrySize(index, entry, size);
       }
-    }
-
-    const maxEntries = MAX_OPFS_ENTRIES[category];
-    let total = entries.reduce((n, entry) => n + entry.size, 0);
-    entries.sort((a, b) => a.lastModified - b.lastModified);
-    let remaining = entries.length;
-    const targetBytes = MAX_PERSISTENT_BYTES[category] * (force ? 0.8 : 1);
-    const targetCount = force ? Math.max(0, Math.floor(remaining * 0.8)) : maxEntries;
-    for (const entry of entries) {
-      if (entry.size > 0 && remaining <= targetCount && total <= targetBytes) continue;
-      if (performance.now() >= deadline) return;
-      await bounded(dir.removeEntry(entry.name), OPFS_OP_TIMEOUT_MS);
-      remaining--; total -= entry.size;
-    }
-  } catch {
-    // ignore
+    } catch { break; }
+  }
+  let count = index.entries.size;
+  const countLimit = force ? Math.floor(count * 0.8) : MAX_OPFS_ENTRIES[category];
+  const byteLimit = MAX_PERSISTENT_BYTES[category] * (force ? 0.8 : 1);
+  if (count <= countLimit && index.bytes <= byteLimit) return;
+  // Sorting is only needed when over budget (or for a quota retry), not on every tile.
+  const entries = [...index.entries.values()].sort((a, b) => a.updatedAt - b.updatedAt);
+  const deletionDeadline = performance.now() + OPFS_OP_TIMEOUT_MS;
+  for (const entry of entries) {
+    if (count <= countLimit && index.bytes <= byteLimit) break;
+    if (performance.now() >= deletionDeadline) break;
+    if (dir) await bounded(dir.removeEntry(entry.name), Math.max(1, deletionDeadline - performance.now()));
+    else if (cache) await bounded(cache.delete(prefix + entry.name), Math.max(1, deletionDeadline - performance.now()));
+    removeEntry(index, entry.name); count--;
   }
 }
-
-/**
- * 代替 Cache Storage の上限整理 (FIX-10)
- */
-async function pruneFallbackCacheIfNeeded(category: TileCategory, force = false): Promise<void> {
-  const deadline = performance.now() + OPFS_OP_TIMEOUT_MS;
-  if (typeof caches === 'undefined') return;
-  try {
-    const cache = await bounded(caches.open(FALLBACK_CACHE_NAME), OPFS_OP_TIMEOUT_MS);
-    const keys = await cache.keys();
-    const prefix = `https://opfs-fallback.local/${category}/`;
-    const catKeys = keys.filter((req) => req.url.startsWith(prefix));
-
-    const entries = await Promise.all(catKeys.map(async request => {
-      const response = await cache.match(request);
-      return { request, size: response ? (await response.arrayBuffer()).byteLength : 0 };
-    }));
-    let total = entries.reduce((n, entry) => n + entry.size, 0);
-    let remaining = entries.length;
-    const countLimit = force ? Math.floor(remaining * 0.8) : MAX_OPFS_ENTRIES[category];
-    const byteLimit = MAX_PERSISTENT_BYTES[category] * (force ? 0.8 : 1);
-    for (const entry of entries) {
-      if (remaining <= countLimit && total <= byteLimit) break;
-      if (performance.now() >= deadline) return;
-      await cache.delete(entry.request); total -= entry.size; remaining--;
-    }
-  } catch {
-    // ignore
-  }
+const pruneOpfsDirectoryIfNeeded = (category: TileCategory, force = false) => prunePersistent(category, 'opfs', force);
+const pruneFallbackCacheIfNeeded = (category: TileCategory, force = false) => prunePersistent(category, 'cache', force);
+async function recordWrite(backend: 'opfs' | 'cache', category: TileCategory, name: string, base: string, size: number, updatedAt: number) {
+  try { addEntry(await getDiskIndex(backend, category), { name, base, size, updatedAt }); } catch { /* rebuild on next access */ }
 }
 
 /**
@@ -342,6 +354,8 @@ async function persistTile(
   isRetry = false,
   now = ++lastGeneration
 ): Promise<void> {
+  if (cacheClosed) return;
+  let storageError: 'quota' | 'timeout' | 'storage-unavailable' = 'storage-unavailable';
   if (bytes.byteLength <= 67 || bytes.byteLength > MAX_PERSISTENT_BYTES[category]) {
     diagnostic({ operation: 'tile-write', backend: 'memory', outcome: 'memory-only', bytes: bytes.byteLength });
     return;
@@ -354,7 +368,7 @@ async function persistTile(
     if (dir && opfsWritableSupported) {
       try {
         const fileHandle = await withTimeout(
-          dir.getFileHandle(`${fileName}.${now}`, { create: true }),
+          dir.getFileHandle(`${fileName}.${now}-${bytes.byteLength}`, { create: true }),
           OPFS_OP_TIMEOUT_MS
         );
         const writableHandle = fileHandle as (FileSystemFileHandle & {
@@ -367,7 +381,7 @@ async function persistTile(
 
         if (!writableHandle || typeof writableHandle.createWritable !== 'function') {
           opfsWritableSupported = false;
-          await dir.removeEntry(`${fileName}.${now}`).catch(() => {});
+          await dir.removeEntry(`${fileName}.${now}-${bytes.byteLength}`).catch(() => {});
         }
         if (writableHandle && typeof writableHandle.createWritable === 'function') {
           const opening = writableHandle.createWritable();
@@ -384,12 +398,15 @@ async function persistTile(
               void writable.abort?.().catch(() => {});
               throw error;
             }
+            if (cacheClosed) return;
+            await recordWrite('opfs', category, `${fileName}.${now}-${bytes.byteLength}`, fileName, bytes.byteLength, now);
             await bounded(pruneOpfsDirectoryIfNeeded(category), OPFS_OP_TIMEOUT_MS).catch(() => {});
             diagnostic({ operation: 'tile-write', backend: 'opfs', outcome: 'success', bytes: bytes.byteLength });
             return;
           }
         }
       } catch (err: unknown) {
+        storageError = err instanceof Error && err.name === 'QuotaExceededError' ? 'quota' : err instanceof Error && /timed out/i.test(err.message) ? 'timeout' : 'storage-unavailable';
         if (!isRetry && err instanceof Error && err.name === 'QuotaExceededError') {
           await bounded(pruneOpfsDirectoryIfNeeded(category, true), OPFS_OP_TIMEOUT_MS);
           return persistTile(category, key, bytes, true, now);
@@ -408,13 +425,17 @@ async function persistTile(
           headers: {
             'Content-Type': 'application/octet-stream',
             'x-cached-at': String(now),
+            'x-rain3d-bytes': String(bytes.byteLength),
           },
         });
-        await bounded(cache.put(`https://opfs-fallback.local/${category}/${fileName}.${now}`, response), OPFS_OP_TIMEOUT_MS);
+        await bounded(cache.put(`https://opfs-fallback.local/${category}/${fileName}.${now}-${bytes.byteLength}`, response), OPFS_OP_TIMEOUT_MS);
+        if (cacheClosed) return;
+        await recordWrite('cache', category, `${fileName}.${now}-${bytes.byteLength}`, fileName, bytes.byteLength, now);
         await bounded(pruneFallbackCacheIfNeeded(category), OPFS_OP_TIMEOUT_MS).catch(() => {});
         diagnostic({ operation: 'tile-write', backend: 'cache', outcome: 'success', bytes: bytes.byteLength });
         return;
       } catch (err: unknown) {
+        storageError = err instanceof Error && err.name === 'QuotaExceededError' ? 'quota' : err instanceof Error && /timed out/i.test(err.message) ? 'timeout' : 'storage-unavailable';
         if (!isRetry && err instanceof Error && err.name === 'QuotaExceededError') {
           await bounded(pruneFallbackCacheIfNeeded(category, true), OPFS_OP_TIMEOUT_MS);
           return persistTile(category, key, bytes, true, now);
@@ -424,24 +445,43 @@ async function persistTile(
   } catch {
     // 永続保存失敗時もメモリキャッシュで動作を継続 (FIX-07)
   }
-  diagnostic({ operation: 'tile-write', backend: 'memory', outcome: 'memory-only', bytes: bytes.byteLength });
+  if (!cacheClosed) diagnostic({ operation: 'tile-write', backend: 'memory', outcome: 'memory-only', bytes: bytes.byteLength, error: storageError });
 }
 
-function writeToPersistentCache(category: TileCategory, key: string, bytes: Uint8Array): Promise<void> {
-  const generation = lastGeneration = Math.max(lastGeneration + 1, Date.now());
-  setMemoryCache(category, key, bytes, generation);
-  if (pendingWrites[category] >= 32) {
-    diagnostic({ operation: 'tile-write', backend: 'memory', outcome: 'memory-only', bytes: bytes.byteLength });
-    return Promise.resolve();
-  }
+function enqueueWrite(category: TileCategory, key: string, bytes: Uint8Array, generation: number): Promise<void> {
   pendingWrites[category]++;
-  generations.set(`${category}:${key}`, generation);
   const task = persistentQueues[category].then(() => persistTile(category, key, bytes, false, generation)).catch(() => {}).finally(() => {
     pendingWrites[category]--;
     if (generations.get(`${category}:${key}`) === generation) generations.delete(`${category}:${key}`);
+    // Deferred jobs retain keys only. Their bytes stay within the existing memory LRU budget.
+    while (!cacheClosed && pendingWrites[category] < 32 && deferredWrites[category].size) {
+      const [nextKey, nextGeneration] = deferredWrites[category].entries().next().value!;
+      deferredWrites[category].delete(nextKey);
+      const memory = memoryCaches[category].get(nextKey);
+      if (memory?.updatedAt === nextGeneration) void enqueueWrite(category, nextKey, memory.bytes, nextGeneration);
+      else if (generations.get(`${category}:${nextKey}`) === nextGeneration) generations.delete(`${category}:${nextKey}`);
+    }
   });
   persistentQueues[category] = task;
   return task;
+}
+function writeToPersistentCache(category: TileCategory, key: string, bytes: Uint8Array): Promise<void> {
+  if (cacheClosed) return Promise.resolve();
+  const generation = lastGeneration = Math.max(lastGeneration + 1, Date.now());
+  setMemoryCache(category, key, bytes, generation);
+  generations.set(`${category}:${key}`, generation);
+  if (pendingWrites[category] >= 32) {
+    deferredWrites[category].set(key, generation);
+    for (const [deferredKey, oldGeneration] of deferredWrites[category]) {
+      if (!memoryCaches[category].has(deferredKey)) {
+        deferredWrites[category].delete(deferredKey);
+        if (generations.get(`${category}:${deferredKey}`) === oldGeneration) generations.delete(`${category}:${deferredKey}`);
+      }
+    }
+    diagnostic({ operation: 'tile-write', backend: 'memory', outcome: 'deferred', bytes: bytes.byteLength, count: deferredWrites[category].size });
+    return Promise.resolve();
+  }
+  return enqueueWrite(category, key, bytes, generation);
 }
 
 /**
@@ -539,7 +579,7 @@ export async function getTileWithOpfsSWR(options: {
   }
 
   // 2. L2 OPFS / L3 Cache Storage 読み出し
-  const persistent = await readFromPersistentCache(category, key);
+  const persistent = await readFromPersistentCache(category, key, signal);
   if (persistent) {
     if (now - persistent.updatedAt > REVALIDATE_INTERVAL_MS[category]) {
       triggerBackgroundRevalidate(category, key, fetcher);

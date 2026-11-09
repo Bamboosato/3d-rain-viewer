@@ -168,15 +168,6 @@ export const App: React.FC = () => {
   const [playbackSpeed, setPlaybackSpeed] = useState<1 | 2>(1);
   const [cachedCount, setCachedCount] = useState<number>(0);
 
-  const [memoryOnly, setMemoryOnly] = useState(false);
-  useEffect(() => {
-    const listen = (event: Event) => {
-      const detail = (event as CustomEvent).detail;
-      if (detail.operation === 'tile-write') setMemoryOnly(detail.outcome === 'memory-only');
-    };
-    window.addEventListener('rain3d-diagnostic', listen);
-    return () => window.removeEventListener('rain3d-diagnostic', listen);
-  }, []);
   const [rainError, setRainError] = useState<string | null>(null);
   const [catalogNotice, setCatalogNotice] = useState<string | null>(null);
   const [catalogRevision, setCatalogRevision] = useState(0);
@@ -1440,9 +1431,9 @@ export const App: React.FC = () => {
       </div>
 
       {/* お気に入りのバックアップ・引き継ぎダイアログ */}
-      {(memoryOnly || rainError || catalogNotice || rainLayerData?.status === 'partial') && <div role="status" className="fixed bottom-40 left-4 z-40 max-w-md rounded bg-slate-900 p-3 text-white text-xs">
+      {(rainError || catalogNotice || rainLayerData?.status === 'partial') && <div role="status" className="fixed bottom-40 left-4 z-40 max-w-md rounded bg-slate-900 p-3 text-white text-xs">
         <p>{rainError ?? (rainLayerData?.status === 'partial' ? '一部の領域が欠測しています。' : '')}</p>
-        <p>{catalogNotice}</p>{memoryOnly && <p>地図データを端末に保存できません。この画面では閲覧を続けられます。</p>}<p>表示時刻: {rainLayerData?.formattedDateJST ?? '未取得'}</p>
+        <p>{catalogNotice}</p><p>表示時刻: {rainLayerData?.formattedDateJST ?? '未取得'}</p>
         <button onClick={() => { refreshCatalog(); void handleSelectTimeIndex(currentTimeIndex); }}>再試行</button>
       </div>}
       {favoritesWarning && <div role="alert" className="fixed bottom-24 left-4 right-4 z-50 rounded bg-slate-900 p-3 text-white">{favoritesWarning}<button className="ml-3 underline" onClick={async () => {

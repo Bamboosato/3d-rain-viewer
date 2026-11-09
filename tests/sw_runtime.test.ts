@@ -18,7 +18,7 @@ function fixture() {
         delete:async(key:any)=>stores.get(name)!.delete(typeof key==='string'?key:key.url) };
     },
   };
-  runInNewContext(readFileSync('public/sw.js','utf8'), { URL, Response, caches:cacheApi, fetch:fetcher,
+  runInNewContext(readFileSync('public/sw.js','utf8'), { URL, Response, Headers, caches:cacheApi, fetch:fetcher,
     self:{location:{origin:'https://fixture.invalid'},addEventListener:(type:string,handler:any)=>handlers[type]=handler,skipWaiting,clients:{claim:async()=>{}}} });
   const request = (url='https://fixture.invalid/', mode='navigate') => {
     let response!:Promise<Response>; let lifetime!:Promise<void>;
@@ -49,7 +49,7 @@ it('T02 waitUntil tracks delayed failed put while response succeeds immediately'
   const f=fixture();let reject!: (reason:any)=>void;f.put.mockImplementation(()=>new Promise((_,rej)=>reject=rej));
   const r=f.request();expect((await r.response).status).toBe(200);
   let finished=false;void r.lifetime.then(()=>finished=true);await Promise.resolve();expect(finished).toBe(false);
-  reject(new Error('disk'));await r.lifetime;expect(finished).toBe(true);
+  await vi.waitFor(()=>expect(f.put).toHaveBeenCalled());reject(new Error('disk'));await r.lifetime;expect(finished).toBe(true);
 });
 it('T29 shell pruning applies the configured limit to actual cache entries',async()=>{
   const f=fixture();const entries=new Map<string,Response>();for(let i=0;i<100;i++)entries.set(`https://fixture.invalid/${i}`,new Response('asset'));

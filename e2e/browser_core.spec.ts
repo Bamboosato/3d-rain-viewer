@@ -26,6 +26,7 @@ test.beforeEach(async({page,request,context})=>{
  await context.route('**/*',async route=>{
   const url=new URL(route.request().url());if(url.hostname==='localhost'||url.hostname==='127.0.0.1'){await route.continue();return;}
   if(url.hostname==='data.earth.jaxa.jp'&&url.pathname.endsWith('.js')){await route.fulfill({response:await request.get('/__fixture/jaxa.js')});return;}
+  if(url.hostname==='tile.openstreetmap.org'){await route.fulfill({response:await request.get('/__fixture/map.png')});return;}
   if(url.hostname==='www.jma.go.jp'){
    const response=await request.get('/__fixture/'+url.pathname.split('/').pop());await route.fulfill({response});return;
   }
@@ -121,4 +122,29 @@ test('T13/14 source roundtrip adopts matching displayed time and point value',as
   await new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve())));
  });
  await expect(page.locator('#inspector-rain-value')).toContainText('0.0');
+});
+
+// Short performance smoke: real MapLibre/protocol/OPFS/CacheStorage, fixed map and DEM providers.
+// Normal/revisit + burst/viewport transition; no physical-device timing claims.
+test('PERF accumulated map cache survives pan zoom and reload without internal warnings',async({page},info)=>{
+ await page.addInitScript(()=>{
+  (window as any).__fixtureTerrain=true;
+  (window as any).__tileEvents=[];
+  window.addEventListener('rain3d-diagnostic',(event:any)=>{if(event.detail.operation.startsWith('tile-'))(window as any).__tileEvents.push(event.detail);});
+ });
+ await page.goto('/?lng=139&lat=35&zoom=9');await controlled(page);
+ await expect.poll(()=>page.evaluate(()=>(window as any).__tileEvents.filter((e:any)=>e.operation==='tile-write'&&e.outcome==='success').length),{timeout:15000}).toBeGreaterThan(8);
+ const canvas=page.locator('.maplibregl-canvas');const box=(await canvas.boundingBox())!;
+ const x=box.x+box.width*0.5,y=box.y+box.height*0.55;
+ await page.mouse.move(x,y);await page.mouse.down();await page.mouse.move(x+180,y+60,{steps:8});await page.mouse.up();
+ await page.mouse.wheel(0,-350);await page.mouse.move(x,y);await page.mouse.down();await page.mouse.move(x-180,y-60,{steps:8});await page.mouse.up();await page.mouse.wheel(0,350);
+ await expect.poll(()=>page.evaluate(()=>(window as any).__tileEvents.filter((e:any)=>e.operation==='tile-write'&&e.outcome==='success').length),{timeout:15000}).toBeGreaterThan(12);
+ await page.evaluate(()=>window.dispatchEvent(new CustomEvent('rain3d-diagnostic',{detail:{operation:'tile-write',outcome:'memory-only'}})));
+ await expect(page.getByText('地図データを端末に保存できません。この画面では閲覧を続けられます。')).toHaveCount(0);
+ const before=await page.evaluate(()=>(window as any).__tileEvents);
+ await page.reload();
+ await expect.poll(()=>page.evaluate(()=>(window as any).__tileEvents.filter((e:any)=>e.operation==='tile-read'&&e.outcome==='hit'&&['opfs','cache'].includes(e.backend)).length),{timeout:15000}).toBeGreaterThan(3);
+ const after=await page.evaluate(()=>(window as any).__tileEvents);
+ expect(after.filter((e:any)=>e.operation==='tile-write'&&e.outcome==='memory-only')).toHaveLength(0);
+ await info.attach('map-cache-events',{body:JSON.stringify({before,after},null,2),contentType:'application/json'});
 });
