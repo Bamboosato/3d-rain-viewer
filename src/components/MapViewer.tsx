@@ -1,6 +1,7 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import { Loader2 } from 'lucide-react';
 import type {
   BaseMapId,
   InspectorPoint,
@@ -56,6 +57,7 @@ export const MapViewer: React.FC<MapViewerProps> = ({
   onCameraChange,
   mapInstanceRef,
 }) => {
+  const [isTilesLoading, setIsTilesLoading] = useState<boolean>(true);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const internalMapRef = useRef<maplibregl.Map | null>(null);
   const markerRef = useRef<maplibregl.Marker | null>(null);
@@ -206,6 +208,23 @@ export const MapViewer: React.FC<MapViewerProps> = ({
         });
       };
       map.on('moveend', emitCameraView);
+
+      // 地図・地形タイルの読み込み状態追跡（シンプルなローディングスピナー用）
+      const handleDataLoading = (e: maplibregl.MapDataEvent) => {
+        if (disposed) return;
+        if (e.dataType === 'tile' || e.dataType === 'source') {
+          setIsTilesLoading(true);
+        }
+      };
+      const handleIdle = () => {
+        if (disposed) return;
+        if (map.areTilesLoaded()) {
+          setIsTilesLoading(false);
+        }
+      };
+
+      map.on('dataloading', handleDataLoading);
+      map.on('idle', handleIdle);
 
       renderFavoriteMarkers(map, latestFavoritesRef.current);
 
@@ -502,6 +521,20 @@ export const MapViewer: React.FC<MapViewerProps> = ({
   return (
     <div className="relative z-0 isolate w-full h-full">
       <div id="map" ref={containerRef} className="w-full h-full" />
+
+      {/* 地図・3D地形タイルの読み込み中を示すシンプルなインジケーター（スピナー） */}
+      {isTilesLoading && (
+        <div
+          role="status"
+          aria-label="地図・3D地形タイル読み込み中"
+          className="pointer-events-none absolute left-3 z-10 flex items-center justify-center p-1.5 rounded-full bg-slate-900/80 backdrop-blur-md border border-slate-700/70 shadow-lg text-sky-400 animate-in fade-in duration-200"
+          style={{
+            bottom: 'calc(var(--safe-bottom) * 0.6 + 108px)',
+          }}
+        >
+          <Loader2 className="w-4 h-4 animate-spin" />
+        </div>
+      )}
     </div>
   );
 };

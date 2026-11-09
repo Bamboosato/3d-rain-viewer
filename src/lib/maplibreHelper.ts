@@ -194,27 +194,36 @@ export function registerJaxaTerrainProtocol(tileSize = 256): void {
     const x = parseInt(parts[1], 10);
     const y = parseInt(parts[2], 10);
 
-    try {
-      const buffer = await getTileWithOpfsSWR({
-        category: 'terrain',
-        key: `aw3d_${tileSize}_${z}_${x}_${y}`,
-        fetcher: async (sig) => {
-          const tg = await getAW3DTileGenerator(tileSize);
-          const dataObject = await tg.getDataObject(x, y, z, sig);
-          if (!dataObject || !dataObject.data) {
-            throw new Error('No land elevation data for tile');
+    // 失敗時は標高0mのダミーPNGで誤確定させず、例外を投げてMapLibreにリトライさせる
+    const buffer = await getTileWithOpfsSWR({
+      category: 'terrain',
+      key: `aw3d_${tileSize}_${z}_${x}_${y}`,
+      fetcher: async (sig) => {
+        let lastError: unknown = null;
+        for (let attempt = 0; attempt <= 2; attempt++) {
+          if (sig?.aborted) {
+            throw new DOMException('Terrain tile request aborted', 'AbortError');
           }
-          return encodeTerrainRGBPng(dataObject.data, tileSize);
-        },
-        signal: abortController.signal,
-      });
-      return { data: buffer };
-    } catch {
-      const emptyPng = await encodeTerrainRGBPng(null, tileSize);
-      const copy = new Uint8Array(emptyPng.byteLength);
-      copy.set(emptyPng);
-      return { data: copy.buffer };
-    }
+          try {
+            const tg = await getAW3DTileGenerator(tileSize);
+            const dataObject = await tg.getDataObject(x, y, z, sig);
+            if (!dataObject || !dataObject.data) {
+              throw new Error('No land elevation data for tile');
+            }
+            return await encodeTerrainRGBPng(dataObject.data, tileSize);
+          } catch (err) {
+            lastError = err;
+            if (sig?.aborted) throw err;
+            if (attempt < 2) {
+              await new Promise((res) => setTimeout(res, 250 * (attempt + 1)));
+            }
+          }
+        }
+        throw lastError ?? new Error(`Failed to load terrain tile ${z}/${x}/${y}`);
+      },
+      signal: abortController.signal,
+    });
+    return { data: buffer };
   });
 }
 
