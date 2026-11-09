@@ -541,6 +541,15 @@ export const App: React.FC = () => {
       const resolvedElevation =
         preset.elevation && preset.elevation > 0 ? preset.elevation : inspected.elevation;
 
+      const map = mapInstanceRef.current;
+      let initialElevation = resolvedElevation;
+      if (initialElevation === null && map?.getTerrain()) {
+        const queried = map.queryTerrainElevation([lng, lat]);
+        if (queried !== null && Number.isFinite(queried)) {
+          initialElevation = Math.round(queried);
+        }
+      }
+
       sharedSpotNameRef.current = undefined;
       cameraViewRef.current = {
         lat,
@@ -551,7 +560,7 @@ export const App: React.FC = () => {
       };
       scheduleUrlSync();
 
-      mapInstanceRef.current?.flyTo({
+      map?.flyTo({
         center: preset.center,
         zoom: preset.zoom,
         pitch: preset.pitch,
@@ -567,7 +576,7 @@ export const App: React.FC = () => {
         setInspectedPoint({
           lng,
           lat,
-          elevation: resolvedElevation,
+          elevation: initialElevation,
           precipitation: inspected.precipitation ?? 0,
           screenX,
           screenY,
@@ -579,11 +588,30 @@ export const App: React.FC = () => {
         });
       });
 
-      if (resolvedElevation === null) {
+      if (initialElevation === null) {
+        // カメラ移動完了後 (moveend) に画面上の3D地形メッシュから即座に標高を取得
+        if (map) {
+          map.once('moveend', () => {
+            if (map.getTerrain()) {
+              const queried = map.queryTerrainElevation([lng, lat]);
+              if (queried !== null && Number.isFinite(queried)) {
+                setInspectedPoint((prev) =>
+                  prev && prev.lng === lng && prev.lat === lat
+                    ? { ...prev, elevation: Math.round(queried) }
+                    : prev
+                );
+              }
+            }
+          });
+        }
+
+        // AW3D30衛星データからも並行取得（画面外や平坦地などのフォールバック）
         const fetchedElev = await fetchPointElevationFromAW3D(lng, lat);
         if (fetchedElev !== null) {
           setInspectedPoint((prev) =>
-            prev && prev.lng === lng && prev.lat === lat ? { ...prev, elevation: fetchedElev } : prev
+            prev && prev.lng === lng && prev.lat === lat
+              ? { ...prev, elevation: prev.elevation ?? fetchedElev }
+              : prev
           );
         }
       }

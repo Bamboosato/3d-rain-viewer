@@ -342,12 +342,13 @@ export async function fetchPointElevationFromAW3D(
   try {
     const je = await getJaxaEarth();
     const dl = 0.02;
+    // JAXA Earth API の仕様制約 (width/height は 10 以上 10000 以下) に合わせ 16x16 を指定
     const dataObj = await je.getDataObject({
       collectionUrl: AW3D30_COLLECTION_URL,
       band: 'DSM',
       bbox: [lng - dl, lat - dl, lng + dl, lat + dl],
-      width: 8,
-      height: 8,
+      width: 16,
+      height: 16,
       resampling: je.Resampling.BILINEAR,
     });
     const isp = new je.data.Inspector(dataObj);
