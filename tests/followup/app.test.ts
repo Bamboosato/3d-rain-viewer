@@ -190,3 +190,39 @@ it('member-only catalog change retries the same valid time instead of rolling ba
  expect(h.timeline.currentIndex).toBe(1);expect(h.timeline.displayedFrame.member).toBe('immed');
  expect(h.map.rainLayerData.imageUrl).toBe('B');expect(h.catalogCalls).toBe(2);
 });
+
+it('playback automatically stops upon reaching the right end without looping to the beginning',async()=>{
+ vi.useFakeTimers();
+ h.frameIds=['A','B','C'];
+ await mount();
+ await act(async()=>h.requests.get('A')!.resolve(frame('A')));
+ expect(h.timeline.currentIndex).toBe(0);
+
+ // 再生開始
+ await act(async()=>h.timeline.onTogglePlay());
+ expect(h.timeline.isPlaying).toBe(true);
+
+ // コマ送り: 0 -> 1 (B)
+ await act(async()=>{await vi.advanceTimersByTimeAsync(1000);});
+ expect(h.timeline.currentIndex).toBe(1);
+ await act(async()=>h.requests.get('B')!.resolve(frame('B')));
+
+ // コマ送り: 1 -> 2 (C: 右端)
+ await act(async()=>{await vi.advanceTimersByTimeAsync(1000);});
+ expect(h.timeline.currentIndex).toBe(2);
+ await act(async()=>h.requests.get('C')!.resolve(frame('C')));
+ expect(h.timeline.isPlaying).toBe(true);
+
+ // 右端到達後のタイマー発火: 先頭へループせず自動停止する
+ await act(async()=>{await vi.advanceTimersByTimeAsync(1000);});
+ expect(h.timeline.currentIndex).toBe(2);
+ expect(h.timeline.isPlaying).toBe(false);
+
+ // 右端で停止中に再生ボタンを押すと、再生が開始され次回タイマーで先頭(0)から再生される
+ await act(async()=>h.timeline.onTogglePlay());
+ expect(h.timeline.isPlaying).toBe(true);
+ expect(h.timeline.currentIndex).toBe(2);
+
+ await act(async()=>{await vi.advanceTimersByTimeAsync(1000);});
+ expect(h.timeline.currentIndex).toBe(0);
+});

@@ -176,6 +176,7 @@ export const App: React.FC = () => {
   }, []);
   const [currentTimeIndex, setCurrentTimeIndex] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const startedAtEndRef = useRef<boolean>(false);
   const [playbackSpeed, setPlaybackSpeed] = useState<1 | 2>(1);
   const [cachedCount, setCachedCount] = useState<number>(0);
 
@@ -595,6 +596,7 @@ export const App: React.FC = () => {
     ++activeRequestIdRef.current;
     selectedTimeRef.current = frame.date;
     setCurrentTimeIndex(index); setIsLoadingRain(true); setIsPlaying(false);
+    startedAtEndRef.current = false;
     const key = `${rainSource}:${getFrameKey(rainSource, frame)}`;
     for (const [requestKey, entry] of frameControllers.current) if (requestKey !== key) entry.controller.abort();
   }, [timelineFrames, rainSource, getFrameKey]);
@@ -801,19 +803,42 @@ export const App: React.FC = () => {
       for (const entry of frameControllers.current.values()) entry.controller.abort();
       runViewTransition(() => {
         setIsPlaying(false);
+        startedAtEndRef.current = false;
         setRainSource(nextSource);
       });
     },
     [rainSource]
   );
 
-  // 機能A-2: タイムラプス自動コマ送り・ループ再生（1x: 1000ms / 2x: 500ms）
+  // タイムラプス再生・停止トグル（末尾到達時は再生開始時に先頭巻き戻しフラグをセット）
+  const handleTogglePlay = useCallback(() => {
+    setIsPlaying((prev) => {
+      const nextPlaying = !prev;
+      if (nextPlaying) {
+        startedAtEndRef.current = currentTimeIndex >= timelineFrames.length - 1;
+      } else {
+        startedAtEndRef.current = false;
+      }
+      return nextPlaying;
+    });
+  }, [currentTimeIndex, timelineFrames.length]);
+
+  // 機能A-2: タイムラプス自動コマ送り・終端停止（1x: 1000ms / 2x: 500ms）
   useEffect(() => {
     if (!isPlaying || isLoadingRain || timelineFrames.length <= 1) return;
 
     const intervalMs = playbackSpeed === 2 ? 500 : 1000;
     const timer = window.setInterval(() => {
-      const nextIdx = (currentTimeIndex + 1) % timelineFrames.length;
+      if (startedAtEndRef.current) {
+        startedAtEndRef.current = false;
+        handleSelectTimeIndex(0);
+        return;
+      }
+      const nextIdx = currentTimeIndex + 1;
+      if (nextIdx >= timelineFrames.length) {
+        setIsPlaying(false);
+        return;
+      }
       handleSelectTimeIndex(nextIdx);
     }, intervalMs);
 
@@ -1593,7 +1618,7 @@ export const App: React.FC = () => {
           onSelectIndex={handleSelectTimeIndex}
           onPreviewIndex={handlePreviewTimeIndex}
           isPlaying={isPlaying}
-          onTogglePlay={() => setIsPlaying((prev) => !prev)}
+          onTogglePlay={handleTogglePlay}
           playbackSpeed={playbackSpeed}
           onToggleSpeed={() => setPlaybackSpeed((prev) => (prev === 1 ? 2 : 1))}
           observedDateJST={rainLayerData?.formattedDateJST ?? ''}
