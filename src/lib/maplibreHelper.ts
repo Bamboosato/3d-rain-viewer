@@ -1,11 +1,15 @@
 import { bounded, abortableDelay } from './asyncLifecycle';
-import maplibregl from 'maplibre-gl';
+import * as maplibregl from 'maplibre-gl';
+import mapWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import type { BaseMapId, PresetLocation, RendererBackend, WebGPUStatus } from '../types/map';
 import { getAW3DTileGenerator, getJaxaEarth } from './jaxaClient';
 import { HYAKUMEIZAN_PRESETS } from './hyakumeizanData';
 import { fetchTileBytesWithRetry, getTileWithOpfsSWR } from './opfsTileCache';
 
 export const PRESET_LOCATIONS: PresetLocation[] = HYAKUMEIZAN_PRESETS;
+
+// Bundle the worker and its shared module together, including for offline PWA startup.
+maplibregl.setWorkerUrl(mapWorkerUrl);
 
 const UPSTREAM_RASTER_TEMPLATES: Record<BaseMapId, string> = {
   osm: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',

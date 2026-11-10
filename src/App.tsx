@@ -3,7 +3,7 @@ import { useUpdateBlocker } from './lib/updateGuard';
 import { bounded } from './lib/asyncLifecycle';
 import { FrameScheduler, touchFrame, trimFrames } from './lib/frameBudget';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type maplibregl from 'maplibre-gl';
+import type * as maplibregl from 'maplibre-gl';
 import {
   CloudRain,
   Download,
