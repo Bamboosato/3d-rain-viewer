@@ -828,6 +828,7 @@ export const App: React.FC = () => {
         clearTimeout(centerDebounceTimerRef.current);
       }
       setMapCenter({ lng, lat });
+      setIsDrawerOpen(false);
       const inspected = inspectLocationValues(lng, lat);
       const screenX = typeof window !== 'undefined' ? Math.round(window.innerWidth / 2) : undefined;
       const screenY =
@@ -1166,14 +1167,30 @@ export const App: React.FC = () => {
     [timelineFrames, currentTimeIndex, rainSource, baseMap, exaggeration]
   );
 
-  // 機能B-3: 地図クリック時のインスペクターカード表示・移動 (View Transitions API 連動)
+  // 機能B-3: 地図クリック時のインスペクターカード表示・移動 (View Transitions API 連動 + パターンA: ドロワー自動格納)
   const handleInspectPoint = useCallback(
     (point: InspectorPoint) => {
       sharedSpotNameRef.current = undefined;
       scheduleUrlSync();
+      setIsDrawerOpen(false);
       runViewTransition(() => {
         setInspectedPoint(point);
       });
+    },
+    [scheduleUrlSync]
+  );
+
+  // パターンA: タイムラインドロワー開閉ハンドラ (ドロワー展開時はインスペクターを自動クローズ)
+  const handleToggleDrawer = useCallback(
+    (open: boolean) => {
+      setIsDrawerOpen(open);
+      if (open) {
+        sharedSpotNameRef.current = undefined;
+        scheduleUrlSync();
+        runViewTransition(() => {
+          setInspectedPoint(null);
+        });
+      }
     },
     [scheduleUrlSync]
   );
@@ -1527,7 +1544,7 @@ export const App: React.FC = () => {
       </header>
 
       {/* クリック地点の近傍にフローティング表示される地点インスペクター (機能B: 単一インスタンスでView Transitions固有性を保証) */}
-      <div className="pointer-events-none fixed inset-0 z-[25]">
+      <div className="pointer-events-none fixed inset-0 z-[35]">
         <Inspector
           point={inspectedPoint}
           onClose={() => {
@@ -1587,7 +1604,7 @@ export const App: React.FC = () => {
           isTimeseriesLoading={isTimeseriesLoading}
           centerCoords={mapCenter}
           isDrawerOpen={isDrawerOpen}
-          onToggleDrawer={setIsDrawerOpen}
+          onToggleDrawer={handleToggleDrawer}
         />
       </div>
 

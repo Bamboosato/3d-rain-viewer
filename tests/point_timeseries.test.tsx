@@ -410,4 +410,36 @@ describe('TimelineBar: 引き出し式ドロワーの操作 (UI/UX観点)', () =
 
     expect(onToggleDrawer).toHaveBeenCalledWith(false);
   });
+
+  it('パターンA: ドロワー展開とインスペクター表示が相互に自動クローズ（排他制御）されること', () => {
+    let inspectedPoint: any = { lng: 139.76, lat: 35.68, elevation: 10, precipitation: 2.5 };
+    let isDrawerOpen = false;
+
+    const handleToggleDrawer = (open: boolean) => {
+      isDrawerOpen = open;
+      if (open) {
+        inspectedPoint = null;
+      }
+    };
+
+    const handleInspectPoint = (pt: any) => {
+      isDrawerOpen = false;
+      inspectedPoint = pt;
+    };
+
+    // 初期状態: インスペクターが表示されている
+    expect(inspectedPoint).not.toBeNull();
+    expect(isDrawerOpen).toBe(false);
+
+    // ドロワーを開く（スワイプまたはタップ） -> インスペクターが自動で閉じる
+    handleToggleDrawer(true);
+    expect(isDrawerOpen).toBe(true);
+    expect(inspectedPoint).toBeNull();
+
+    // グラフ表示中に地図をタップして地点選択 -> ドロワーが自動で閉じ、インスペクターが表示される
+    handleInspectPoint({ lng: 138.72, lat: 35.36, elevation: 3776, precipitation: 0 });
+    expect(isDrawerOpen).toBe(false);
+    expect(inspectedPoint).not.toBeNull();
+    expect(inspectedPoint.elevation).toBe(3776);
+  });
 });
