@@ -32,6 +32,10 @@ import {
   setActiveRainLayerResult,
 } from './lib/jaxaClient';
 import {
+  fetchPointTimeseries,
+  type PointTimeseriesResult,
+} from './lib/pointTimeseriesClient';
+import {
   fetchJMANowcastCatalog,
   fetchJMANowcastRainLayer,
   getJMAFrameKey,
@@ -237,6 +241,17 @@ export const App: React.FC = () => {
     bearing: initialPresetResolutionRef.current.preset.bearing,
   });
   const urlSyncTimerRef = useRef<number | null>(null);
+
+  // 地図中心座標（タイムライン引き出し式 降水量推移グラフ用）
+  const [mapCenter, setMapCenter] = useState<{ lng: number; lat: number }>({
+    lng: initialPresetResolutionRef.current.preset.center[0],
+    lat: initialPresetResolutionRef.current.preset.center[1],
+  });
+  const [isDrawerOpen, setIsDrawerOpen] = useState<boolean>(false);
+  const [timeseries, setTimeseries] = useState<PointTimeseriesResult | null>(null);
+  const [isTimeseriesLoading, setIsTimeseriesLoading] = useState<boolean>(false);
+  const centerDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const timeseriesControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     const handleBeforeInstallPrompt = (e: Event) => {
@@ -725,9 +740,58 @@ export const App: React.FC = () => {
     (view: { lat: number; lng: number; zoom: number; pitch: number; bearing: number }) => {
       cameraViewRef.current = view;
       scheduleUrlSync();
+      if (centerDebounceTimerRef.current !== null) {
+        clearTimeout(centerDebounceTimerRef.current);
+      }
+      centerDebounceTimerRef.current = setTimeout(() => {
+        setMapCenter({ lng: view.lng, lat: view.lat });
+      }, 350);
     },
     [scheduleUrlSync]
   );
+
+  // タイムライン引き出し式 降水量推移グラフの時系列データ取得 (非同期・AbortController管理)
+  useEffect(() => {
+    if (!isDrawerOpen) {
+      if (timeseriesControllerRef.current) {
+        timeseriesControllerRef.current.abort();
+        timeseriesControllerRef.current = null;
+      }
+      return;
+    }
+
+    if (timelineFrames.length === 0) return;
+
+    if (timeseriesControllerRef.current) {
+      timeseriesControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    timeseriesControllerRef.current = controller;
+
+    setIsTimeseriesLoading(true);
+    fetchPointTimeseries(
+      mapCenter.lng,
+      mapCenter.lat,
+      timelineFrames,
+      rainSource,
+      controller.signal
+    )
+      .then((result) => {
+        if (!controller.signal.aborted) {
+          setTimeseries(result);
+          setIsTimeseriesLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setIsTimeseriesLoading(false);
+        }
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [isDrawerOpen, mapCenter.lng, mapCenter.lat, timelineFrames, rainSource]);
 
   // 雨雲データソース切り替えハンドラ (View Transitions API 連動)
   const handleChangeRainSource = useCallback(
@@ -760,6 +824,10 @@ export const App: React.FC = () => {
   const handleSelectPreset = useCallback(
     async (preset: PresetLocation) => {
       const [lng, lat] = preset.center;
+      if (centerDebounceTimerRef.current !== null) {
+        clearTimeout(centerDebounceTimerRef.current);
+      }
+      setMapCenter({ lng, lat });
       const inspected = inspectLocationValues(lng, lat);
       const screenX = typeof window !== 'undefined' ? Math.round(window.innerWidth / 2) : undefined;
       const screenY =
@@ -1474,6 +1542,21 @@ export const App: React.FC = () => {
         />
       </div>
 
+      {/* グラフ引き出し展開時の地図中心照準マーク (Crosshair) */}
+      {isDrawerOpen && (
+        <div
+          id="map-center-crosshair"
+          aria-hidden="true"
+          className="pointer-events-none fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 flex items-center justify-center animate-in fade-in duration-200"
+        >
+          <div className="relative flex items-center justify-center w-8 h-8 rounded-full border border-sky-400/80 bg-sky-950/20 backdrop-blur-xs shadow-lg shadow-sky-950/50">
+            <div className="absolute w-2.5 h-[1.5px] bg-sky-300 rounded-full" />
+            <div className="absolute h-2.5 w-[1.5px] bg-sky-300 rounded-full" />
+            <div className="w-1.5 h-1.5 rounded-full bg-sky-400 shadow shadow-sky-400 animate-pulse" />
+          </div>
+        </div>
+      )}
+
       {/* 右下: 降雨強度 (mm/h) カラーバー凡例（スマホは右下のスリム縦型ピル、デスクトップは折りたたみカード） */}
       <div className="pointer-events-none absolute bottom-[calc(var(--safe-bottom)*0.6+104px)] sm:bottom-24 xl:bottom-6 right-3 sm:right-4 z-20">
         <Legend
@@ -1484,7 +1567,7 @@ export const App: React.FC = () => {
       </div>
 
       {/* 下部中央: 時系列タイムラプスバー (横方向センタリング + iPhone ホームバー safe-area-inset-bottom 対応) */}
-      <div className="safe-bottom-timeline pointer-events-none absolute inset-x-2 sm:inset-x-16 z-20 flex justify-center">
+      <div className="safe-bottom-timeline pointer-events-none absolute inset-x-2 sm:inset-x-16 z-30 flex justify-center">
         <TimelineBar
           rainSource={rainSource}
           onChangeRainSource={handleChangeRainSource}
@@ -1500,6 +1583,11 @@ export const App: React.FC = () => {
           displayedFrame={rainLayerData?.timelineFrame ?? null}
           isLoading={isLoadingRain}
           cachedCount={cachedCount}
+          timeseries={timeseries}
+          isTimeseriesLoading={isTimeseriesLoading}
+          centerCoords={mapCenter}
+          isDrawerOpen={isDrawerOpen}
+          onToggleDrawer={setIsDrawerOpen}
         />
       </div>
 
