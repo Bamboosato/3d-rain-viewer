@@ -21,8 +21,6 @@ interface TimelineBarProps {
   onToggleSpeed: () => void;
   observedDateJST: string;
   displayedFrame?: TimelineFrameItem | null;
-  isWaiting?: boolean;
-  dataNotice?: string | null;
   isLoading: boolean;
   cachedCount?: number;
 }
@@ -51,8 +49,6 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
   onToggleSpeed,
   observedDateJST,
   displayedFrame,
-  isWaiting = false,
-  dataNotice,
   isLoading,
 }) => {
   const [thumbIndex, setThumbIndex] = useState(currentIndex);
@@ -75,7 +71,6 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
     onPreviewIndex?.(index);
   };
   const maxIndex = Math.max(0, frames.length - 1);
-  const selectedFrame = frames[thumbIndex];
   const isForecastFrame = Boolean(displayedFrame?.isForecast);
   const isLatestObsFrame = Boolean(displayedFrame && !isForecastFrame && frames.some(f =>
     f.isLatestObservation && f.date.getTime() === displayedFrame.date.getTime()));
@@ -93,11 +88,12 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
       ? (latestObsIndex / maxIndex) * 100
       : null;
 
-  const compactDateJST = observedDateJST ? formatCompactDate(observedDateJST) : isLoading ? '取得中...' : '未取得';
+  const compactDateJST = observedDateJST ? formatCompactDate(observedDateJST) : '未取得';
 
   return (
     <section
       aria-label="雨雲タイムラプスコントローラー"
+      aria-busy={isLoading}
       className="pointer-events-auto rounded-2xl bg-slate-900/90 backdrop-blur-md border border-slate-700/80 shadow-2xl px-3 sm:px-4 py-2 sm:py-2.5 text-sm text-slate-100 w-full max-w-xl overflow-hidden"
     >
       {/* 1行目: PC・スマホ共通のシンプルな操作バー（左:再生コントロール / 右:日時＋過去・現在・予測） */}
@@ -232,15 +228,6 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
           {rainSource === 'jma-nowcast' ? '予測' : '現在'}
         </span>
       </div>
-      {(isLoading || isWaiting || thumbIndex !== currentIndex || dataNotice) && (
-        <div id="timeline-data-state" role="status" className="mt-1 text-[11px] text-slate-300">
-          {(isLoading || isWaiting || thumbIndex !== currentIndex) && <span>
-            {selectedFrame ? `選択 ${formatCompactDate(selectedFrame.labelJST)} · ` : ''}
-            {isLoading || thumbIndex !== currentIndex ? '取得中' : '更新待ち'}
-          </span>}
-          {dataNotice && <span className="ml-2">{dataNotice}</span>}
-        </div>
-      )}
     </section>
   );
 };
