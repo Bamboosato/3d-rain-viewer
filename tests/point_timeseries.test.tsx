@@ -85,6 +85,15 @@ describe('pointTimeseriesClient: 座標・ピクセル計算およびサンプ�
     expect(rasrfUrl).toContain('/rasrf/20261110050000/none/20261110060000/surf/rasrf/6/56/25.png');
   });
 
+  it('member: immed のフレームで正しく URL に /immed/ が含まれること (FIX: +2h〜+6h 域外/欠測バグ防止)', () => {
+    const immedFrame: TimelineFrameItem = {
+      ...dummyFrames[3],
+      member: 'immed',
+    };
+    const url = getJMATileUrl(immedFrame, 56, 25);
+    expect(url).toContain('/rasrf/20261110050000/immed/20261110060000/surf/rasrf/6/56/25.png');
+  });
+
   it('透明ピクセル (alpha = 0) の場合は降水量 0 mm/h を返すこと', () => {
     const data = new Uint8ClampedArray(256 * 256 * 4);
     // 全て透明
@@ -329,6 +338,8 @@ describe('TimelineBar: 引き出し式ドロワーの操作 (UI/UX観点)', () =
 
     const handle = host.querySelector('#timeline-drawer-handle') as HTMLElement;
     expect(handle).not.toBeNull();
+    // ハンドル下に説明テキストが含まれず、ミニマルなバーのみであること
+    expect(handle.textContent?.trim()).toBe('');
 
     await act(async () => {
       handle.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientY: 200, pointerId: 1 }));

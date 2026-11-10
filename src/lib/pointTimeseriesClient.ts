@@ -67,9 +67,10 @@ export function getJMATileUrl(
   ty: number
 ): string {
   const isRasrf = frame.tileDataset === 'rasrf';
+  const member = frame.member || 'none';
   return isRasrf
-    ? `https://www.jma.go.jp/bosai/jmatile/data/rasrf/${frame.basetime}/none/${frame.validtime}/surf/rasrf/${JMA_TILE_Z}/${tx}/${ty}.png`
-    : `https://www.jma.go.jp/bosai/jmatile/data/nowc/${frame.basetime}/none/${frame.validtime}/surf/hrpns/${JMA_TILE_Z}/${tx}/${ty}.png`;
+    ? `https://www.jma.go.jp/bosai/jmatile/data/rasrf/${frame.basetime}/${member}/${frame.validtime}/surf/rasrf/${JMA_TILE_Z}/${tx}/${ty}.png`
+    : `https://www.jma.go.jp/bosai/jmatile/data/nowc/${frame.basetime}/${member}/${frame.validtime}/surf/hrpns/${JMA_TILE_Z}/${tx}/${ty}.png`;
 }
 
 /**
