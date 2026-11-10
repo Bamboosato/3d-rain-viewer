@@ -166,7 +166,7 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
     <section
       aria-label="雨雲タイムラプスコントローラー"
       aria-busy={isLoading}
-      className="pointer-events-auto rounded-2xl bg-slate-900/90 backdrop-blur-md border border-slate-700/80 shadow-2xl px-3 sm:px-4 pt-1.5 pb-2.5 sm:pb-3 text-sm text-slate-100 w-full max-w-xl overflow-hidden transition-all duration-300"
+      className="pointer-events-auto rounded-2xl bg-slate-900/90 backdrop-blur-md border border-slate-700/80 shadow-2xl px-3 sm:px-4 pt-1 pb-2 sm:pb-2.5 text-sm text-slate-100 w-full max-w-xl overflow-hidden transition-all duration-300"
     >
       {/* タイムライン上部のプルアップ／プルダウン引き出しドラッグハンドル */}
       <div
@@ -179,12 +179,9 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
-        className="w-full pt-0.5 pb-2 -mt-0.5 flex flex-col items-center justify-center cursor-grab active:cursor-grabbing touch-none select-none group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 rounded-lg"
+        className="w-full py-1.5 -mt-0.5 flex items-center justify-center cursor-grab active:cursor-grabbing touch-none select-none group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 rounded-lg"
       >
         <div className="w-12 h-1.5 rounded-full bg-slate-400/60 group-hover:bg-slate-300 transition-colors shadow-xs" />
-        <span className="text-[10px] text-slate-400 group-hover:text-slate-300 font-medium tracking-tight mt-0.5 transition-colors">
-          {isDrawerOpen ? '▼ グラフを閉じる' : '▲ 降水量推移グラフ'}
-        </span>
       </div>
 
       {/* ボトムシート引き出し式 降水量推移グラフ領域 */}

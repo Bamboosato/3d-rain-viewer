@@ -1558,7 +1558,7 @@ export const App: React.FC = () => {
       )}
 
       {/* 右下: 降雨強度 (mm/h) カラーバー凡例（スマホは右下のスリム縦型ピル、デスクトップは折りたたみカード） */}
-      <div className="pointer-events-none absolute bottom-[calc(var(--safe-bottom)*0.6+104px)] sm:bottom-24 xl:bottom-6 right-3 sm:right-4 z-20">
+      <div className="pointer-events-none absolute bottom-[calc(var(--safe-bottom)*0.6+106px)] sm:bottom-[calc(var(--safe-bottom)+118px)] lg:bottom-6 right-3 sm:right-4 z-20">
         <Legend
           maxPrecipitation={rainLayerData?.maxPrecipitation ?? 0}
           isLoading={isLoadingRain}

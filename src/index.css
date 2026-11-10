@@ -287,16 +287,16 @@
   color: #38bdf8 !important;
 }
 
-/* スマホ表示 (< 640px) ではタイムラインバーと重ならないよう縮尺・ズームボタンを上へ退避し、押しやすいサイズを確保 */
+/* スマホ・タブレット表示 (< 1024px) ではタイムラインバーと重ならないよう縮尺・ズームボタンを上へ退避し、押しやすいサイズを確保 */
 @media (max-width: 639px) {
   .maplibregl-ctrl-bottom-left {
-    bottom: calc(var(--safe-bottom) * 0.6 + 104px) !important;
+    bottom: calc(var(--safe-bottom) * 0.6 + 106px) !important;
     left: calc(var(--safe-left) + 2px) !important;
     padding: 0 0 0 8px !important;
   }
 
   .maplibregl-ctrl-bottom-right {
-    bottom: calc(var(--safe-bottom) * 0.6 + 104px) !important;
+    bottom: calc(var(--safe-bottom) * 0.6 + 106px) !important;
     right: calc(var(--safe-right) + 2px) !important;
   }
 
@@ -322,6 +322,20 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+}
+
+@media (min-width: 640px) and (max-width: 1023px) {
+  .maplibregl-ctrl-bottom-left {
+    bottom: calc(var(--safe-bottom) + 118px) !important;
+    left: calc(var(--safe-left) + 12px) !important;
+    padding: 0 !important;
+  }
+
+  .maplibregl-ctrl-bottom-right {
+    bottom: calc(var(--safe-bottom) + 118px) !important;
+    right: calc(var(--safe-right) + 12px) !important;
+    padding: 0 !important;
   }
 }
 .app-update-notice {
