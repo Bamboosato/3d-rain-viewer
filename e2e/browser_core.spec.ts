@@ -57,6 +57,66 @@ test('T17/18 valid sync import and Undo commit through UI then reload',async({pa
  await expect(page.getByRole('status').filter({hasText:'取り込み前の状態'})).toBeVisible();
  await page.reload();expect((await persisted(page)).favorites.map((f:any)=>f.name)).toEqual(['Before import']);expect((await persisted(page)).undo).toBeNull();
 });
+
+// VT perspectives: one persisted save/rename, overlapping UI updates, modal focus
+// and reload. Native animation stays enabled; observation must not catch ready.
+test('VT save uses one transition and rapid operations preserve state and focus',async({page})=>{
+ await page.emulateMedia({reducedMotion:'no-preference'});
+ const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
+ page.on('console',message=>{if(message.type()==='error'&&message.text().startsWith('View transition '))errors.push(message.text());});
+ await page.addInitScript(()=>{
+  const original=document.startViewTransition.bind(document);
+  const state=(window as any).__vt={started:0,pending:0,peak:0};
+  document.startViewTransition=((...args:any[])=>{
+   state.started++;state.pending++;state.peak=Math.max(state.peak,state.pending);
+   const transition=(original as any)(...args);
+   // Do not observe ready: that would hide the original unhandled rejection.
+   transition.finished.then(()=>state.pending--,()=>state.pending--);
+   return transition;
+  }) as typeof document.startViewTransition;
+ });
+ const settled=async()=>{
+  await page.waitForFunction(()=>(window as any).__vt.pending===0);
+  // Advance a task after promises settle so unhandledrejection can be delivered.
+  await page.evaluate(()=>new Promise(resolve=>setTimeout(resolve,0)));
+ };
+ await page.goto(point);await controlled(page);await settled();
+ await page.getByRole('button',{name:'お気に入りに追加',exact:true}).click();
+ await page.locator('#inspector-fav-name-input').fill('VT saved');await settled();
+ const before=await page.evaluate(()=>(window as any).__vt.started);
+ await page.locator('#inspector-fav-save-btn').click();
+ await expect(page.locator('#inspector-fav-edit-btn')).toBeVisible();await settled();
+ expect(await page.evaluate(()=>(window as any).__vt.started)).toBe(before+1);
+ expect((await persisted(page)).favorites.map((f:any)=>f.name)).toEqual(['VT saved']);
+ await page.locator('#inspector-fav-edit-btn').click();
+ await page.locator('#inspector-fav-name-input').fill('VT renamed');
+ const beforeRename=await page.evaluate(()=>(window as any).__vt.started);
+ // Use browser mouse events: React commits disabled between user input events.
+ // Two synchronous DOM click() calls in one script bypass that input boundary.
+ await page.locator('#inspector-fav-save-btn').dblclick();
+ await expect(page.locator('#inspector-fav-edit-btn')).toBeVisible();await settled();
+ expect(await page.evaluate(()=>(window as any).__vt.started)).toBe(beforeRename+1);
+ expect((await persisted(page)).favorites.map((f:any)=>f.name)).toEqual(['VT renamed']);
+ // Dispatch real panel handlers in one task to guarantee overlapping native transitions.
+ await page.evaluate(()=>{
+  (window as any).__vt.peak=0;
+  document.querySelector<HTMLButtonElement>('#layer-menu-toggle-btn')!.click();
+  document.querySelector<HTMLButtonElement>('#share-view-btn')!.click();
+ });
+ await expect(page.locator('#share-menu-current-screen-btn')).toBeVisible();await settled();
+ expect(await page.evaluate(()=>(window as any).__vt.peak)).toBeGreaterThanOrEqual(2);
+ await page.keyboard.press('Escape');await settled();
+ await expect(page.locator('#share-menu-current-screen-btn')).toBeHidden();
+ await page.locator('#jaxa-credit-trigger-btn').click();
+ await expect(page.locator('#jaxa-credit-close-btn')).toBeFocused();
+ await page.keyboard.press('Escape');
+ await expect(page.locator('#jaxa-credit-close-btn')).toBeHidden();
+ await expect(page.locator('#jaxa-credit-trigger-btn')).toBeFocused();await settled();
+ expect(errors).toEqual([]);
+ await page.reload();await expect(page.locator('#inspector-fav-edit-btn')).toBeVisible();await settled();
+ expect((await persisted(page)).favorites.map((f:any)=>f.name)).toEqual(['VT renamed']);
+ expect(errors).toEqual([]);
+});
 test('T01/20/21 actual old-to-new SW preserves editing and foreign cache',async({page,request},info)=>{
  await request.get('/__test/config?version=old');await page.goto(point);await controlled(page);
  await page.evaluate(async()=>{const cache=await caches.open('rain3d-opfs-fallback-v1');await cache.put('/fixture-tile',new Response('keep'));await caches.open('rain3d-shell-v10');});
