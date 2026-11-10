@@ -1039,6 +1039,24 @@ export const App: React.FC = () => {
     [runSerializedFavoritesOp]
   );
 
+  // お気に入り地点のピン留めトグル（直列化）
+  const handleTogglePinFavorite = useCallback(
+    async (id: string) => {
+      return runSerializedFavoritesOp(async (current) => {
+        const next = current.map((f) =>
+          f.id === id ? { ...f, isPinned: !f.isPinned, updatedAt: new Date().toISOString() } : f
+        );
+        const saveRes = await saveFavoriteLocations(next);
+        if (saveRes.success) {
+          return { next, result: saveRes };
+        }
+        setFavoritesWarning(saveRes.message ?? "ピン留め状態を更新できませんでした。");
+        return { result: saveRes };
+      });
+    },
+    [runSerializedFavoritesOp]
+  );
+
   // バックアップ・引き継ぎ（JSON / 同期URL）からの取り込み結果、または元に戻す操作を反映
   const handleApplyFavorites = useCallback(
     (action: { kind: 'import'; items: PresetLocation[]; mode: ImportMode; expected: PresetLocation[] } | { kind: 'undo' }) =>
@@ -1478,6 +1496,7 @@ export const App: React.FC = () => {
             }}
             onSelectPreset={handleSelectPreset}
             onRemoveFavorite={handleRemoveFavorite}
+            onTogglePinFavorite={handleTogglePinFavorite}
             onShareFavorite={handleShareFavorite}
             onOpenFavoritesSync={handleOpenFavoritesSync}
             backupRecommended={backupRecommended}

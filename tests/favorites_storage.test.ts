@@ -52,6 +52,13 @@ describe('favoritesStorage & validation (FIX-03, FIX-14)', () => {
       expect(isValidFavoriteLocation({ ...validLocation, name: 'a'.repeat(60) })).toBe(false);
     });
 
+    it('isPinnedの真偽値フラグを正しく判定し、不正な型を弾く', () => {
+      expect(isValidFavoriteLocation({ ...validLocation, isPinned: true })).toBe(true);
+      expect(isValidFavoriteLocation({ ...validLocation, isPinned: false })).toBe(true);
+      expect(isValidFavoriteLocation({ ...validLocation, isPinned: 'true' as any })).toBe(false);
+      expect(isValidFavoriteLocation({ ...validLocation, isPinned: 1 as any })).toBe(false);
+    });
+
     it('不正項目を除外して有効なもののみ取得し、除外件数を報告する', () => {
       const raw = [
         validLocation,
