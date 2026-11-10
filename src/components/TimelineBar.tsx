@@ -189,7 +189,7 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
         id="timeline-drawer-content"
         className={`transition-all duration-300 ease-out overflow-hidden ${
           isDrawerOpen
-            ? 'max-h-64 opacity-100 mb-2.5 pb-2 border-b border-slate-700/70'
+            ? 'max-h-96 opacity-100 mb-2.5 pb-2 border-b border-slate-700/70'
             : 'max-h-0 opacity-0 pointer-events-none'
         }`}
       >
