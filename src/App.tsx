@@ -1603,17 +1603,17 @@ export const App: React.FC = () => {
         />
       </div>
 
-      {/* グラフ引き出し展開時の地図中心照準マーク (Crosshair) */}
+      {/* グラフ引き出し展開時の地図中心照準マーク (Crosshair) - 雨雲（青・シアン等）上でも際立つ高視認性の赤系デザイン */}
       {isDrawerOpen && (
         <div
           id="map-center-crosshair"
           aria-hidden="true"
           className="pointer-events-none fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 flex items-center justify-center animate-in fade-in duration-200"
         >
-          <div className="relative flex items-center justify-center w-8 h-8 rounded-full border border-sky-400/80 bg-sky-950/20 backdrop-blur-xs shadow-lg shadow-sky-950/50">
-            <div className="absolute w-2.5 h-[1.5px] bg-sky-300 rounded-full" />
-            <div className="absolute h-2.5 w-[1.5px] bg-sky-300 rounded-full" />
-            <div className="w-1.5 h-1.5 rounded-full bg-sky-400 shadow shadow-sky-400 animate-pulse" />
+          <div className="relative flex items-center justify-center w-8 h-8 rounded-full border-2 border-rose-500 bg-rose-950/30 backdrop-blur-xs shadow-lg shadow-black/60 ring-1 ring-white/60">
+            <div className="absolute w-3 h-[2px] bg-rose-400 rounded-full shadow-[0_0_2px_rgba(0,0,0,0.9)]" />
+            <div className="absolute h-3 w-[2px] bg-rose-400 rounded-full shadow-[0_0_2px_rgba(0,0,0,0.9)]" />
+            <div className="w-1.5 h-1.5 rounded-full bg-rose-500 shadow shadow-rose-500 animate-pulse ring-1 ring-white/90" />
           </div>
         </div>
       )}

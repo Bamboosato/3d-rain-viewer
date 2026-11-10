@@ -250,6 +250,9 @@ describe('RainfallChart コンポーネント (UI・操作観点)', () => {
       );
     });
 
+    // タイトル「中心地点」が表示されること
+    expect(host.textContent).toContain('中心地点');
+    expect(host.textContent).not.toContain('中心照準地点');
     // Y軸スケール最大値 (max 15 -> scale 20)
     expect(host.textContent).toContain('20');
     // 雨量数値
