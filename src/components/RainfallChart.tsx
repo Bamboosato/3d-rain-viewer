@@ -165,10 +165,11 @@ export const RainfallChart: React.FC<RainfallChartProps> = ({
         {/* Y軸固定列 (mm/h) */}
         <div
           aria-hidden="true"
-          className="sticky left-0 z-20 flex flex-col justify-between items-end pr-1.5 py-1 text-[10px] font-mono font-bold text-slate-400 bg-slate-900/95 backdrop-blur-md border-r border-slate-700/70 h-[92px] shrink-0 min-w-[34px] pointer-events-none"
+          className="sticky left-0 z-20 flex flex-col justify-between items-end pr-1.5 py-1 text-[10px] font-mono font-bold text-slate-400 bg-slate-900/95 backdrop-blur-md border-r border-slate-700/70 h-[148px] shrink-0 min-w-[34px] pointer-events-none"
         >
           <span className="leading-none">{yScaleMax}</span>
-          <span className="leading-none text-slate-400">{Math.round(yScaleMax / 2)}</span>
+          <span className="leading-none text-slate-400">{Math.round((yScaleMax * 2) / 3)}</span>
+          <span className="leading-none text-slate-400">{Math.round(yScaleMax / 3)}</span>
           <span className="leading-none text-slate-400">0</span>
         </div>
 
@@ -177,11 +178,11 @@ export const RainfallChart: React.FC<RainfallChartProps> = ({
           ref={scrollContainerRef}
           onWheel={handleTouchOrWheel}
           onTouchMove={handleTouchOrWheel}
-          className="relative flex-1 flex items-end overflow-x-auto overflow-y-hidden scrollbar-thin select-none touch-pan-x py-1 px-1.5 min-h-[92px]"
+          className="relative flex-1 flex items-end overflow-x-auto overflow-y-hidden scrollbar-thin select-none touch-pan-x py-1 px-1.5 min-h-[148px]"
           style={{ touchAction: 'pan-x' }}
         >
           {items.length === 0 ? (
-            <div className="flex-1 flex items-center justify-center text-xs text-slate-400 py-6">
+            <div className="flex-1 flex items-center justify-center text-xs text-slate-400 py-10">
               {isLoading ? '雨量データを取得中...' : '雨量時系列データがありません'}
             </div>
           ) : (
@@ -204,7 +205,7 @@ export const RainfallChart: React.FC<RainfallChartProps> = ({
                     data-bar-index={index}
                     onClick={() => onSelectIndex(index)}
                     aria-label={`${formatBarTime(item.frame)}: ${mmh === null ? '欠測' : `${mmh} mm/h`} ${isSelected ? '(選択中)' : ''}`}
-                    className={`group relative flex flex-col items-center justify-end h-[84px] min-w-[34px] sm:min-w-[38px] px-0.5 rounded-lg transition-colors cursor-pointer shrink-0 ${
+                    className={`group relative flex flex-col items-center justify-end h-[140px] min-w-[34px] sm:min-w-[38px] px-0.5 rounded-lg transition-colors cursor-pointer shrink-0 ${
                       isSelected
                         ? 'bg-sky-500/25 ring-1.5 ring-sky-400 shadow-sm'
                         : 'hover:bg-slate-800/60'
@@ -225,7 +226,7 @@ export const RainfallChart: React.FC<RainfallChartProps> = ({
                     </span>
 
                     {/* バー本体 */}
-                    <div className="w-full flex items-end justify-center h-10 bg-slate-800/50 rounded-sm overflow-hidden">
+                    <div className="w-full flex items-end justify-center h-24 bg-slate-800/50 rounded-sm overflow-hidden">
                       <div
                         style={{
                           height: `${heightPct}%`,
@@ -251,7 +252,7 @@ export const RainfallChart: React.FC<RainfallChartProps> = ({
                   {showNowLineAfterThis && (
                     <div
                       aria-label="現在実況境界"
-                      className="relative flex flex-col items-center justify-center mx-1 h-[84px] shrink-0 pointer-events-none z-10"
+                      className="relative flex flex-col items-center justify-center mx-1 h-[140px] shrink-0 pointer-events-none z-10"
                     >
                       <div className="h-full border-r-2 border-dashed border-emerald-400/90" />
                       <span className="absolute top-0 px-1 py-0.2 rounded text-[8px] font-bold bg-emerald-500/80 text-slate-950 whitespace-nowrap shadow shadow-emerald-500/40">
