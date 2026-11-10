@@ -12,8 +12,8 @@ async function updateWhileBlocked(page:Page){
  // update() can join an already-running browser update job. Wait for the observed new controller/UI.
  await expect.poll(async()=>{
   await page.evaluate(async()=>{await (await navigator.serviceWorker.getRegistration())!.update();});
-  return page.getByRole('button',{name:'編集・取り込みの完了後に更新できます'}).count();
- },{timeout:15000,intervals:[100,250,500]}).toBe(1);
+  return page.getByRole('button',{name:'更新',exact:true}).isDisabled().catch(()=>false);
+ },{timeout:15000,intervals:[100,250,500]}).toBe(true);
 }
 async function save(page:Page,name:string){
  await page.getByRole('button',{name:'お気に入りに追加',exact:true}).click();
@@ -57,12 +57,23 @@ test('T17/18 valid sync import and Undo commit through UI then reload',async({pa
  await expect(page.getByRole('status').filter({hasText:'取り込み前の状態'})).toBeVisible();
  await page.reload();expect((await persisted(page)).favorites.map((f:any)=>f.name)).toEqual(['Before import']);expect((await persisted(page)).undo).toBeNull();
 });
-test('T01/20/21 actual old-to-new SW preserves editing and foreign cache',async({page,request})=>{
+test('T01/20/21 actual old-to-new SW preserves editing and foreign cache',async({page,request},info)=>{
  await request.get('/__test/config?version=old');await page.goto(point);await controlled(page);
  await page.evaluate(async()=>{const cache=await caches.open('rain3d-opfs-fallback-v1');await cache.put('/fixture-tile',new Response('keep'));await caches.open('rain3d-shell-v10');});
  await page.getByRole('button',{name:'お気に入りに追加',exact:true}).click();await page.locator('#inspector-fav-name-input').fill('Unsaved fixture');
  await request.get('/__test/config?version=new');await updateWhileBlocked(page);
- const update=page.getByRole('button',{name:'編集・取り込みの完了後に更新できます'});await expect(update).toBeVisible();await expect(update).toBeDisabled();
+ const update=page.getByRole('button',{name:'更新',exact:true});await expect(update).toBeVisible();await expect(update).toBeDisabled();
+ // UI/boundary: distinct text/action, disabled explanation, and a narrow viewport.
+ const notice=page.getByRole('region',{name:'アプリの更新'});
+ await expect(notice.getByRole('status')).toHaveText('新しいバージョンがあります');
+ await expect(page.locator('#app-update-reason')).toBeVisible();
+ await expect(update).toHaveAccessibleDescription(/編集・取り込みの完了後に更新できます/);
+ const originalViewport=page.viewportSize()!;
+ await page.setViewportSize({width:320,height:740});
+ const box=(await notice.boundingBox())!;
+ expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(320);
+ expect((await update.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+ await page.setViewportSize(originalViewport);
  await expect(page.locator('#inspector-fav-name-input')).toHaveValue('Unsaved fixture');
  await page.evaluate(()=>{
   const original=IDBDatabase.prototype.transaction;
@@ -77,8 +88,16 @@ test('T01/20/21 actual old-to-new SW preserves editing and foreign cache',async(
  await page.waitForFunction(()=>(window as any).__releaseCommits.length>0);
  await expect(update).toBeDisabled();await expect(page.locator('#inspector-fav-save-btn')).toBeDisabled();
  await page.evaluate(()=>{for(const release of (window as any).__releaseCommits.splice(0))release();});
- await expect(page.getByRole('button',{name:'更新があります。再読み込み'})).toBeEnabled();
- await page.getByRole('button',{name:'更新があります。再読み込み'}).click();await expect(page.locator('#inspector-fav-edit-btn')).toBeVisible();
+ await expect(page.getByRole('button',{name:'更新',exact:true})).toBeEnabled();
+ await expect(page.locator('#app-update-reason')).toBeHidden();
+ await page.setViewportSize({width:390,height:844});
+ await update.focus();await expect(update).toBeFocused();
+ await notice.screenshot({path:`test-results/update-notice-${info.project.name}.png`});
+ await Promise.all([page.waitForEvent('load'),update.press('Enter')]);
+ // Resizing the viewport can change the inspected map point; verify the saved
+ // record itself after navigation rather than relying on that point's selection.
+ expect((await persisted(page)).favorites[0].name).toBe('Unsaved fixture');
+ await expect(notice).toBeHidden();
  await expect.poll(()=>page.evaluate(()=>caches.keys())).not.toContain('rain3d-shell-v10');
  const keys=await page.evaluate(()=>caches.keys());expect(keys).toContain('rain3d-opfs-fallback-v1');
 });
@@ -86,9 +105,9 @@ test('T20 valid import confirmation survives SW update and clears after cancel',
  await request.get('/__test/config?version=old');await page.goto('/#fav='+payload);await controlled(page);
  await expect(page.getByRole('button',{name:'追加する',exact:true})).toBeVisible();
  await request.get('/__test/config?version=new');await updateWhileBlocked(page);
- await expect(page.getByRole('button',{name:'編集・取り込みの完了後に更新できます'})).toBeDisabled();
+ await expect(page.getByRole('button',{name:'更新',exact:true})).toBeDisabled();
  await page.getByRole('button',{name:'キャンセル',exact:true}).click();await page.getByRole('button',{name:'閉じる',exact:true}).click();
- await expect(page.getByRole('button',{name:'更新があります。再読み込み'})).toBeEnabled();
+ await expect(page.getByRole('button',{name:'更新',exact:true})).toBeEnabled();
  await page.reload();await expect(page.getByRole('dialog')).toHaveCount(0);
 });
 test('T06/07/23/27 zero fixture differs from missing and survives offline reload',async({page,context,request})=>{

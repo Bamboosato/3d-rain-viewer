@@ -324,3 +324,40 @@
     text-overflow: ellipsis;
   }
 }
+.app-update-notice {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 4.5rem);
+  right: 0.75rem;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  max-width: calc(100% - 1.5rem);
+  padding: 0.75rem;
+  border: 1px solid #38bdf8;
+  border-radius: 0.75rem;
+  background: #0c4a6e;
+  color: #fff;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  box-shadow: 0 4px 16px #0006;
+}
+
+.app-update-notice[hidden] { display: none; }
+.app-update-notice p { margin: 0; }
+.app-update-notice .app-update-reason { margin-top: 0.25rem; font-size: 0.75rem; }
+.app-update-button {
+  flex: none;
+  min-width: 3.5rem;
+  min-height: 44px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #fff;
+  border-radius: 0.5rem;
+  background: #fff;
+  color: #0c4a6e;
+  font-weight: 700;
+  cursor: pointer;
+}
+.app-update-button:enabled:hover { background: #e0f2fe; }
+.app-update-button:focus-visible { outline: 3px solid #fbbf24; outline-offset: 3px; }
+.app-update-button:disabled { opacity: 0.5; cursor: not-allowed; }
