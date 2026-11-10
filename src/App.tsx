@@ -125,17 +125,18 @@ export const App: React.FC = () => {
 
   const runSerializedFavoritesOp = useCallback(
     <T,>(
-      op: (current: PresetLocation[]) => Promise<{ next?: PresetLocation[]; result: T }>
+      op: (current: PresetLocation[]) => Promise<{ next?: PresetLocation[]; result: T; updateSelection?: () => void }>
     ): Promise<T> => {
       setFavoritesBusy(n => n + 1);
       const task = favoritesOpQueueRef.current.then(async () => {
         const current = favoritesRef.current;
-        const { next, result } = await op(current);
+        const { next, result, updateSelection } = await op(current);
         if (next !== undefined) {
           favoritesRef.current = next;
           setFavoritesWarning(getFavoritesStorageWarning());
           runViewTransition(() => {
             setFavorites(next);
+            updateSelection?.();
           });
         }
         return result;
@@ -844,11 +845,13 @@ export const App: React.FC = () => {
         requestPersistentStorage();
         const saveRes = await saveFavoriteLocations(next);
         if (saveRes.success) {
-          runViewTransition(() => {
-            setActivePreset(newFav);
-            setInspectedPoint((prev) => (prev ? { ...prev, label: `⭐ ${trimmed}` } : null));
-          });
-          return { next, result: saveRes };
+          return {
+            next, result: saveRes,
+            updateSelection: () => {
+              setActivePreset(newFav);
+              setInspectedPoint((prev) => (prev ? { ...prev, label: `⭐ ${trimmed}` } : null));
+            },
+          };
         } else {
           console.error('Failed to save favorite:', saveRes.message);
           return { result: saveRes };
