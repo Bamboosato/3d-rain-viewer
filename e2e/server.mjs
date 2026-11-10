@@ -5,7 +5,7 @@ import path from 'node:path';
 import { deflateSync } from 'node:zlib';
 let version = 'new', weather = 'zero';
 let forecast='off', forecastGeneration=0;
-let forecastRequests={}, catalogRequests={};
+let forecastRequests={}, catalogRequests={}, memberErrors=0;
 let heldForecast=[];
 let swRequests=[];
 const crc = buffer => { let c=0xffffffff; for(const byte of buffer){c^=byte;for(let i=0;i<8;i++)c=(c>>>1)^((c&1)?0xedb88320:0);}return (c^0xffffffff)>>>0; };
@@ -16,9 +16,9 @@ const n1=JSON.stringify([{basetime:'20261109060000',validtime:'20261109060000',e
 createServer(async(req,res)=>{
  const url=new URL(req.url,'http://localhost:4173');
  const send=(status,body,type='text/plain')=>{res.writeHead(status,{'content-type':type,'cache-control':'no-store','access-control-allow-origin':'*'});res.end(body);};
- if(url.pathname==='/__test/state'){send(200,JSON.stringify({version,weather,swRequests,forecastRequests,catalogRequests,forecastGeneration}),'application/json');return;}
+ if(url.pathname==='/__test/state'){send(200,JSON.stringify({version,weather,swRequests,forecastRequests,catalogRequests,forecastGeneration,memberErrors}),'application/json');return;}
  if(url.pathname==='/__test/release-forecast'){for(const release of heldForecast.splice(0))release();send(200,'ok');return;}
- if(url.pathname==='/__test/config'){for(const release of heldForecast.splice(0))release();version=url.searchParams.get('version')||'new';weather=url.searchParams.get('weather')||'zero';forecast=url.searchParams.get('forecast')||'off';forecastGeneration=0;forecastRequests={};catalogRequests={};send(200,'ok');return;}
+ if(url.pathname==='/__test/config'){for(const release of heldForecast.splice(0))release();version=url.searchParams.get('version')||'new';weather=url.searchParams.get('weather')||'zero';forecast=url.searchParams.get('forecast')||'off';forecastGeneration=0;forecastRequests={};catalogRequests={};memberErrors=0;send(200,'ok');return;}
  if(url.pathname==='/__fixture/jaxa.js'){send(200,await readFile('e2e/jaxa-fixture.mjs','utf8'),'text/javascript');return;}
  if(url.pathname.startsWith('/__fixture/')){
   const upstream=url.searchParams.get('upstream')||'';
@@ -26,12 +26,17 @@ createServer(async(req,res)=>{
    if(upstream.endsWith('.json')){
     const name=upstream.split('/').pop();catalogRequests[name]=(catalogRequests[name]||0)+1;
     const base=forecastGeneration?'20261109061000':'20261109060000';
-    const row=(valid,element)=>({basetime:base,validtime:valid,elements:[element]});
+    const row=(valid,element)=>({basetime:base,validtime:valid,elements:[element],...(element==='rasrf'?{member:valid<='20261109120000'?'immed':'none'}:{})});
     const rows=name.includes('N1')?JSON.parse(n1):name.includes('N2')?['20261109061000','20261109070000'].map(t=>row(t,'hrpns')):
-      ['20261109120000','20261109130000','20261109160000','20261109210000'].map(t=>row(t,'rasrf'));
+      [...(forecast==='members'?['20261109073000']:[]),'20261109120000','20261109130000','20261109160000','20261109210000'].map(t=>row(t,'rasrf'));
     send(200,JSON.stringify(rows),'application/json');return;
    }
    forecastRequests[upstream]=(forecastRequests[upstream]||0)+1;
+   const tile=upstream.match(/\/data\/(nowc|rasrf)\/\d+\/([^/]+)\/(\d+)\/surf\//);
+   if(tile){
+    const expected=tile[1]==='rasrf'&&tile[3]<='20261109120000'?'immed':'none';
+    if(tile[2]!==expected){memberErrors++;send(404,'wrong delivery member');return;}
+   }
    if(upstream.includes('/none/20261109160000/')){
     if(forecast==='refresh'&&upstream.includes('/rasrf/20261109060000/')){forecastGeneration=1;send(404,'old forecast');return;}
     if(forecast==='unavailable'||(forecast==='retry'&&forecastRequests[upstream]===1)){send(503,'temporary');return;}

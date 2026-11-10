@@ -141,6 +141,63 @@ test('FORECAST observation nowcast and 6h 7h 10h 15h boundaries show the actual 
   await expect(page.locator('#timeline-status-pill')).toHaveText('予測');
  }
 });
+test('MEMBER delivery boundaries preserve old none caches and restore immed offline',async({page,request,context})=>{
+ await request.get('/__test/config?forecast=members');await page.goto(point);await controlled(page);
+ await expect(page.locator('#timeline-status-pill')).toHaveText('現在');
+ // Model an existing installation: legacy catalog and an old none URL at the
+ // same base/valid time as a new immed frame. This entry must not be consumed or erased.
+ const oldUrl='https://www.jma.go.jp/bosai/jmatile/data/rasrf/20261109060000/none/20261109120000/surf/rasrf/6/56/25.png';
+ await page.evaluate(async oldUrl=>{
+  const key='rain3d_jma_catalog_v1';const catalog=JSON.parse(localStorage.getItem(key)!);
+  catalog.version=1;for(const frame of catalog.frames)delete frame.member;
+  localStorage.setItem(key,JSON.stringify(catalog));
+  await(await caches.open('rain3d-runtime-v13')).put(oldUrl,new Response('legacy none sentinel'));
+  await(await caches.open('foreign-keep')).put('/member-keep',new Response('keep'));
+ },oldUrl);
+ await page.reload();await expect(page.locator('#timeline-status-pill')).toHaveText('現在');
+ for(const [index,time] of [[2,'11/09 16:00'],[3,'11/09 16:30'],[4,'11/09 21:00'],[5,'11/09 22:00']] as const){
+  await page.evaluate(index=>{
+   const slider=document.querySelector<HTMLInputElement>('#timeline-seek-slider')!;
+   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(slider,String(index));
+   slider.dispatchEvent(new Event('input',{bubbles:true}));
+  },index);
+  await expect(page.locator('#timeline-timestamp-badge')).toContainText(time);
+  await expect(page.getByRole('slider')).toHaveValue(String(index));
+ }
+ const state=await(await request.get('/__test/state')).json();expect(state.memberErrors).toBe(0);
+ for(const [member,valid] of [['none','20261109070000'],['immed','20261109073000'],['immed','20261109120000'],['none','20261109130000']]){
+  const requests=Object.entries(state.forecastRequests).filter(([url])=>url.includes(`/${member}/${valid}/`));
+  expect(requests).toHaveLength(20);
+  // The 1h nowcast may be prefetched on both initial load and reload; the SW
+  // revalidates an existing image once per visit. New immed/7h images are read once.
+  const limit=valid==='20261109070000'?2:1;
+  expect(requests.every(([,count])=>Number(count)>=1&&Number(count)<=limit)).toBe(true);
+ }
+ await page.waitForFunction(async()=>{
+  const cache=await caches.open('rain3d-runtime-v13');const keys=await cache.keys();
+  return keys.filter(r=>r.url.includes('/immed/20261109120000/')).length===20&&keys.filter(r=>r.url.includes('/none/20261109130000/')).length===20;
+ });
+ // A local revisit is served by the composed-frame memory cache.
+ await page.getByRole('slider').press('ArrowLeft');await expect(page.locator('#timeline-timestamp-badge')).toContainText('11/09 21:00');
+ expect((await(await request.get('/__test/state')).json()).forecastRequests).toEqual(state.forecastRequests);
+ await context.setOffline(true);
+ try{
+  await page.reload();await expect(page.locator('#timeline-timestamp-badge')).toContainText('11/09 21:00');
+  await page.getByRole('slider').press('ArrowRight');await expect(page.locator('#timeline-timestamp-badge')).toContainText('11/09 22:00');
+  // Existing none images must also remain readable with the pre-update catalog
+  // shape, entirely offline; unknown legacy immed data is deliberately not guessed.
+  await page.evaluate(()=>{
+   const key='rain3d_jma_catalog_v1';const catalog=JSON.parse(localStorage.getItem(key)!);
+   catalog.version=1;catalog.frames=catalog.frames.filter((frame:any)=>frame.member==='none');
+   for(const frame of catalog.frames)delete frame.member;
+   catalog.defaultIndex=0;localStorage.setItem(key,JSON.stringify(catalog));
+  });
+  await page.reload();await expect(page.locator('#timeline-timestamp-badge')).toContainText('11/09 22:00');
+  expect(await page.evaluate(async oldUrl=>await(await(await caches.open('rain3d-runtime-v13')).match(oldUrl))?.text(),oldUrl)).toBe('legacy none sentinel');
+  expect(await page.evaluate(async()=>await(await(await caches.open('foreign-keep')).match('/member-keep'))?.text())).toBe('keep');
+ }finally{await context.setOffline(false);}
+ await expect(page.locator('#timeline-data-state')).toHaveCount(0);
+});
 test('FORECAST missing old generation refreshes catalog once and displays the same selected valid time',async({page,request})=>{
  await request.get('/__test/config?forecast=refresh');await page.goto(point);await controlled(page);
  await expect(page.locator('#timeline-status-pill')).toHaveText('現在');

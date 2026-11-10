@@ -8,6 +8,7 @@ const h = vi.hoisted(() => ({ map: null as any, timeline: null as any, layer: nu
   requests: new Map<string, {resolve: (x:any)=>void, reject:(x:any)=>void}>(),
   catalogCalls: 0, frameCalls: [] as string[], active: null as any,
   frameIds: ['A','B'],
+  member: undefined as 'none'|'immed'|undefined,
 }));
 vi.mock('../../src/components/MapViewer', () => ({ MapViewer: (p:any) => { h.map=p; return null; } }));
 vi.mock('../../src/components/TimelineBar', () => ({ TimelineBar: (p:any) => { h.timeline=p; return null; } }));
@@ -19,8 +20,8 @@ vi.mock('../../src/components/ShareButton', () => ({ ShareButton: () => null }))
 vi.mock('../../src/components/FavoritesSyncDialog', () => ({ FavoritesSyncDialog: () => null }));
 vi.mock('../../src/lib/maplibreHelper', () => ({ PRESET_LOCATIONS:[{id:'fixture',name:'fixture',center:[139,35],zoom:10,pitch:60,bearing:0,elevation:1}] }));
 vi.mock('../../src/lib/jmaNowcastClient', () => ({
-  getJMAFrameKey:(f:any)=>f.validtime,
-  fetchJMANowcastCatalog:async()=>{h.catalogCalls++; return {defaultIndex:0, frames:h.frameIds.map(id=>({date:new Date(`2026-11-09T0${id.charCodeAt(0)-65}:00:00Z`),labelJST:id,basetime:id,validtime:id}))};},
+  getJMAFrameKey:(f:any)=>`${f.validtime}:${f.member??'none'}`,
+  fetchJMANowcastCatalog:async()=>{h.catalogCalls++; return {defaultIndex:0, frames:h.frameIds.map(id=>({date:new Date(`2026-11-09T0${id.charCodeAt(0)-65}:00:00Z`),labelJST:id,basetime:id,validtime:id,member:h.member}))};},
   fetchJMANowcastRainLayer:(f:any)=>{h.frameCalls.push(f.validtime);return new Promise((resolve,reject)=>h.requests.set(f.validtime,{resolve,reject}));},
 }));
 vi.mock('../../src/lib/jaxaClient', () => ({
@@ -39,7 +40,7 @@ async function mount(){container=document.createElement('div');document.body.app
 beforeEach(()=>{
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT=true;
   vi.stubGlobal('indexedDB',undefined);localStorage.clear();sessionStorage.clear();storage.resetFavoritesMemoryCacheForTesting();
-  window.history.replaceState(null,'','/');h.requests.clear();h.frameCalls=[];h.catalogCalls=0;h.active=null;h.frameIds=['A','B'];
+  window.history.replaceState(null,'','/');h.requests.clear();h.frameCalls=[];h.catalogCalls=0;h.active=null;h.frameIds=['A','B'];h.member=undefined;
 });
 afterEach(async()=>{if(root){await act(async()=>root!.unmount());container.remove();root=undefined;}vi.restoreAllMocks();vi.unstubAllGlobals();vi.useRealTimers();});
 
@@ -176,4 +177,16 @@ it('initial failure has no invented successful image and stops playback',async()
  await act(async()=>h.requests.get('A')!.reject(new WeatherRequestError('timeout')));
  expect(h.map.rainLayerData).toBeNull();expect(h.timeline.displayedFrame).toBeNull();
  expect(h.timeline.isPlaying).toBe(false);expect(h.timeline.isLoading).toBe(false);
+});
+
+it('member-only catalog change retries the same valid time instead of rolling back',async()=>{
+ await mount();await act(async()=>h.requests.get('A')!.resolve(frame('A')));
+ let selected!:Promise<void>;
+ await act(async()=>{selected=h.timeline.onSelectIndex(1);});
+ h.member='immed';
+ await act(async()=>h.requests.get('B')!.reject(new WeatherRequestError('http',404)));
+ expect(h.frameCalls.filter(id=>id==='B')).toHaveLength(2);
+ await act(async()=>{h.requests.get('B')!.resolve(frame('B'));await selected;});
+ expect(h.timeline.currentIndex).toBe(1);expect(h.timeline.displayedFrame.member).toBe('immed');
+ expect(h.map.rainLayerData.imageUrl).toBe('B');expect(h.catalogCalls).toBe(2);
 });
