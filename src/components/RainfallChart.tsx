@@ -128,14 +128,14 @@ export const RainfallChart: React.FC<RainfallChartProps> = ({
       {/* グラフヘッダー: 地図中心座標 & 現在選択時刻の雨量情報 */}
       <div className="flex items-center justify-between gap-2 px-1 mb-1.5 text-xs">
         <div className="flex items-center gap-1.5 min-w-0">
-          <span className="font-bold text-sky-300 shrink-0">中心照準地点</span>
+          <span className="font-bold text-rose-300 shrink-0">中心地点</span>
           {centerCoords && (
             <span className="font-mono text-[11px] text-slate-300 truncate">
               {centerCoords.lat.toFixed(2)}°N, {centerCoords.lng.toFixed(2)}°E
             </span>
           )}
           {isLoading && (
-            <Loader2 className="w-3 h-3 text-sky-400 animate-spin shrink-0 ml-1" />
+            <Loader2 className="w-3 h-3 text-rose-400 animate-spin shrink-0 ml-1" />
           )}
         </div>
 
