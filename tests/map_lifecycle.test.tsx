@@ -4,7 +4,7 @@ import {createRoot} from 'react-dom/client';
 import {expect,it,vi} from 'vitest';
 const h=vi.hoisted(()=>({ready:null as any,map:null as any}));
 vi.mock('../src/lib/maplibreHelper',()=>({registerJaxaTerrainProtocol:()=>{},initGraphicsBackend:()=>new Promise(resolve=>h.ready=resolve),createMapInstance:()=>h.map}));
-vi.mock('maplibre-gl',()=>({default:{NavigationControl:class{},ScaleControl:class{}}}));
+vi.mock('maplibre-gl',()=>({NavigationControl:class{},ScaleControl:class{}}));
 vi.mock('../src/lib/jaxaClient',()=>({JAPAN_RAIN_COORDINATES:[],fetchPointElevationFromAW3D:async()=>null,inspectLocationValues:()=>({precipitation:null,elevation:null})}));
 import {MapViewer} from '../src/components/MapViewer';
 it('T15 delayed map initialization applies only latest rain frame after load',async()=>{
@@ -20,5 +20,12 @@ it('T15 delayed map initialization applies only latest rain frame after load',as
   await act(async()=>{for(const fn of [...handlers.get('load')??[]])fn();});
   expect(sources.get('rain-source').url).toBe('latest');
   expect(api.addSource.mock.calls.filter((c:any)=>c[0]==='rain-source')).toHaveLength(1);
+  // v6 source events show the spinner; style-only events must not re-open it.
+  const emit = async (name:string, event:any={}) => act(async()=>{for(const fn of handlers.get(name)??[])fn(event);});
+  const loading = () => node.querySelector('[aria-label="地図・3D地形タイル読み込み中"]');
+  await emit('idle');expect(loading()).toBeNull();
+  await emit('dataloading',{dataType:'style'});expect(loading()).toBeNull();
+  await emit('dataloading',{dataType:'source'});expect(loading()).not.toBeNull();
+  await emit('idle');expect(loading()).toBeNull();
  }finally{await act(async()=>root.unmount());node.remove();}
 });

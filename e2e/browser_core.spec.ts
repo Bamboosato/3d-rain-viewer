@@ -26,7 +26,9 @@ test.beforeEach(async({page,request,context})=>{
  await context.route('**/*',async route=>{
   const url=new URL(route.request().url());if(url.hostname==='localhost'||url.hostname==='127.0.0.1'){await route.continue();return;}
   if(url.hostname==='data.earth.jaxa.jp'&&url.pathname.endsWith('.js')){await route.fulfill({response:await request.get('/__fixture/jaxa.js')});return;}
-  if(url.hostname==='tile.openstreetmap.org'){await route.fulfill({response:await request.get('/__fixture/map.png')});return;}
+  if(['tile.openstreetmap.org','cyberjapandata.gsi.go.jp','server.arcgisonline.com'].includes(url.hostname)){await route.fulfill({response:await request.get('/__fixture/map.png')});return;}
+  if(url.hostname==='nominatim.openstreetmap.org'){await route.fulfill({json:{display_name:'Fixture',address:{}}});return;}
+  if(['overpass-api.de','overpass.kumi.systems'].includes(url.hostname)){await route.fulfill({json:{elements:[]}});return;}
   if(url.hostname==='www.jma.go.jp'){
    const response=await request.get('/__fixture/'+url.pathname.split('/').pop());await route.fulfill({response});return;
   }
@@ -146,5 +148,59 @@ test('PERF accumulated map cache survives pan zoom and reload without internal w
  await expect.poll(()=>page.evaluate(()=>(window as any).__tileEvents.filter((e:any)=>e.operation==='tile-read'&&e.outcome==='hit'&&['opfs','cache'].includes(e.backend)).length),{timeout:15000}).toBeGreaterThan(3);
  const after=await page.evaluate(()=>(window as any).__tileEvents);
  expect(after.filter((e:any)=>e.operation==='tile-write'&&e.outcome==='memory-only')).toHaveLength(0);
+ console.log('PERF persistent hits after reload',info.project.name,JSON.stringify(after.filter((e:any)=>e.operation==='tile-read'&&e.outcome==='hit').reduce((counts:any,e:any)=>({...counts,[e.backend]:(counts[e.backend]||0)+1}),{})));
  await info.attach('map-cache-events',{body:JSON.stringify({before,after},null,2),contentType:'application/json'});
+});
+
+// Migration viewpoints: production worker messages (not just Worker construction),
+// three source switches, retained favorites, online -> cached offline restart.
+// Fresh context and provider fixtures isolate this from real services/devices.
+test('MIGRATION bundled worker responds online and offline with retained map data',async({page,context})=>{
+ // Exercise the supported reduced-motion path to isolate data/worker migration
+ // from overlapping menu/favorite ViewTransition animations.
+ await page.emulateMedia({reducedMotion:'reduce'});
+ await page.addInitScript(()=>{
+  (window as any).__fixtureTerrain=true;
+  (window as any).__workerReplies=0;
+  (window as any).__workerErrors=[];
+  (window as any).__tileEvents=[];
+  window.addEventListener('rain3d-diagnostic',(event:any)=>{if(event.detail.operation.startsWith('tile-'))(window as any).__tileEvents.push(event.detail);});
+  const OriginalWorker=window.Worker;
+  window.Worker=class extends OriginalWorker {
+   constructor(url:string|URL,options?:WorkerOptions){
+    super(url,options);
+    this.addEventListener('message',()=>{(window as any).__workerReplies++;});
+    this.addEventListener('error',event=>{(window as any).__workerErrors.push(event.message);});
+   }
+  };
+ });
+ const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
+ await page.goto(point);await controlled(page);
+ await expect.poll(()=>page.evaluate(()=>(window as any).__workerReplies)).toBeGreaterThan(0);
+ await expect(page.locator('#inspector-rain-value')).toContainText('0.0');
+ await save(page,'Migration retained');
+ await page.locator('#layer-menu-toggle-btn').click();
+ for(const source of ['hillshade','photo','osm']){
+  const writes=await page.evaluate(()=>(window as any).__tileEvents.filter((e:any)=>e.operation==='tile-write'&&e.outcome==='success').length);
+  await page.locator('#basemap-radio-'+source).check();
+  if(source!=='osm')await expect.poll(()=>page.evaluate(()=>(window as any).__tileEvents.filter((e:any)=>e.operation==='tile-write'&&e.outcome==='success').length),{timeout:10000}).toBeGreaterThan(writes);
+ }
+ // Assert the emitted worker is precached, not incidentally served by HTTP cache.
+ const workers=await page.evaluate(async()=>{
+  const cache=await caches.open('rain3d-shell-v13');
+  return (await cache.keys()).map(r=>r.url).filter(url=>url.includes('/maplibre-gl-worker-'));
+ });
+ expect(workers).toHaveLength(1);
+ expect(errors).toEqual([]);
+ await context.setOffline(true);
+ try {
+  await page.reload();
+  await expect.poll(()=>page.evaluate(()=>(window as any).__workerReplies),{timeout:10000}).toBeGreaterThan(0);
+  await expect.poll(()=>page.evaluate(()=>(window as any).__tileEvents.filter((e:any)=>e.operation==='tile-read'&&e.outcome==='hit'&&['opfs','cache'].includes(e.backend)).length),{timeout:10000}).toBeGreaterThan(3);
+  expect((await persisted(page)).favorites[0].name).toBe('Migration retained');
+  await expect(page.locator('#inspector-fav-edit-btn')).toBeVisible();
+  // Offline background revalidation can fail; the bundled worker must still
+  // start without errors and answer messages using retained persistent data.
+  expect(await page.evaluate(()=>(window as any).__workerErrors)).toEqual([]);
+ } finally {await context.setOffline(false);}
 });

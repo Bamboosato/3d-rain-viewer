@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import maplibregl from 'maplibre-gl';
+import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { Loader2 } from 'lucide-react';
 import type {
@@ -250,9 +250,9 @@ export const MapViewer: React.FC<MapViewerProps> = ({
       };
       map.on('moveend', handleMoveEnd);
 
-      const handleDataLoading = (e: maplibregl.MapDataEvent) => {
+      const handleDataLoading = (e: maplibregl.MapEventType['dataloading']) => {
         if (disposed) return;
-        if (e.dataType === 'tile' || e.dataType === 'source') {
+        if (e.dataType === 'source') {
           setIsTilesLoading(true);
           clearTileLoadingTimeout();
           // iOS WebKit 等で idle イベントが遅延・欠落した場合も最大 2.5 秒でスピナーを安全に解除
