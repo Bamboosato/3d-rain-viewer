@@ -100,6 +100,7 @@ export interface FavoriteInput {
   elevation?: number;
   createdAt?: string;
   updatedAt?: string;
+  isPinned?: boolean;
 }
 
 /**
@@ -126,6 +127,7 @@ export function buildFavoriteLocation(input: FavoriteInput): PresetLocation {
     isFavorite: true,
     createdAt: input.createdAt ?? input.updatedAt ?? now,
     updatedAt: input.updatedAt ?? input.createdAt ?? now,
+    isPinned: input.isPinned ?? false,
   };
 }
 
@@ -151,6 +153,7 @@ function sanitizeFavorite(raw: unknown): PresetLocation | null {
   if (item.id !== undefined && id === undefined) throw new FavoritesTransferError('地点IDが不正です。');
   if (!isValidFavoriteLocation({ ...item, id: id ?? 'import', name })) throw new FavoritesTransferError('地点の座標・視点設定が不正です。');
   for (const key of ['createdAt', 'updatedAt']) if (item[key] !== undefined && !sanitizeIso(item[key])) throw new FavoritesTransferError('登録日時が不正です。');
+  const isPinned = typeof item.isPinned === 'boolean' ? item.isPinned : undefined;
   return { ...buildFavoriteLocation({
     id,
     name,
@@ -162,7 +165,8 @@ function sanitizeFavorite(raw: unknown): PresetLocation | null {
     elevation: isFiniteNumber(item.elevation) ? item.elevation : 0,
     createdAt: sanitizeIso(item.createdAt),
     updatedAt: sanitizeIso(item.updatedAt),
-  }), zoom: item.zoom, pitch: item.pitch, bearing: item.bearing };
+    isPinned,
+  }), zoom: item.zoom, pitch: item.pitch, bearing: item.bearing, isPinned: isPinned ?? false };
 }
 
 function sanitizeList(rawItems: unknown[]): PresetLocation[] {
@@ -254,7 +258,12 @@ export function previewImport(
     const existing = merged[idx];
     if (toTimestamp(item.updatedAt) > toTimestamp(existing.updatedAt)) {
       // 既存IDを維持して内容のみ更新（選択中プリセットとの紐付けを保つ）
-      merged[idx] = { ...item, id: existing.id, createdAt: existing.createdAt ?? item.createdAt };
+      merged[idx] = {
+        ...item,
+        id: existing.id,
+        createdAt: existing.createdAt ?? item.createdAt,
+        isPinned: item.isPinned ?? existing.isPinned,
+      };
       updated++;
     } else {
       unchanged++;
@@ -298,6 +307,7 @@ export function buildBackupFile(favorites: PresetLocation[]): FavoritesBackupFil
       isFavorite: true,
       createdAt: f.createdAt,
       updatedAt: f.updatedAt,
+      isPinned: f.isPinned,
     })),
   };
 }

@@ -61,6 +61,7 @@ export function isValidFavoriteLocation(item: unknown): item is PresetLocation {
   if (typeof loc.name !== 'string' || loc.name.trim().length === 0) return false;
   if (loc.name.length > MAX_NAME_LENGTH || /[\u0000-\u001f\u007f]/.test(loc.name)) return false;
   for (const date of [loc.createdAt, loc.updatedAt]) if (date !== undefined && (typeof date !== 'string' || !Number.isFinite(Date.parse(date)))) return false;
+  if (loc.isPinned !== undefined && typeof loc.isPinned !== 'boolean') return false;
   if (loc.elevation !== undefined && !Number.isFinite(loc.elevation)) return false;
 
   if (!Array.isArray(loc.center) || loc.center.length !== 2) return false;

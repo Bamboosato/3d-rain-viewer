@@ -36,6 +36,8 @@ export interface PresetLocation {
   createdAt?: string;
   /** お気に入り最終更新日時（ISO 8601）。取り込み時のマージで新しい方を優先する判定に使用 */
   updatedAt?: string;
+  /** お気に入りリスト上位ピン留めフラグ */
+  isPinned?: boolean;
 }
 
 export interface InspectorPoint {

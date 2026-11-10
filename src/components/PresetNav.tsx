@@ -13,6 +13,7 @@ import {
   Share2,
   Check,
   ArrowRightLeft,
+  Pin,
 } from 'lucide-react';
 import type { PresetLocation } from '../types/map';
 import { AREA_GROUPS } from '../lib/hyakumeizanData';
@@ -36,6 +37,8 @@ interface PresetNavProps {
   onSelectPreset: (preset: PresetLocation) => void;
   onRemoveFavorite?: (id: string) => void;
   onShareFavorite?: (preset: PresetLocation) => void;
+  /** お気に入りのピン留めトグル */
+  onTogglePinFavorite?: (id: string) => void;
   /** お気に入りのバックアップ・引き継ぎダイアログを開く */
   onOpenFavoritesSync?: () => void;
   /** バックアップ推奨バッジを表示するか */
@@ -52,6 +55,7 @@ export const PresetNav: React.FC<PresetNavProps> = ({
   onSelectPreset,
   onRemoveFavorite,
   onShareFavorite,
+  onTogglePinFavorite,
   onOpenFavoritesSync,
   backupRecommended = false,
   isOpen: controlledIsOpen,
@@ -90,7 +94,7 @@ export const PresetNav: React.FC<PresetNavProps> = ({
 
   // GPS現在地の取得（許可されている場合は距離順ソートの第1優先基準位置として使用）
   useEffect(() => {
-    if (!isOpen || activeTab !== 'search') return;
+    if (!isOpen || (activeTab !== 'search' && activeTab !== 'favorites')) return;
     if (typeof navigator === 'undefined' || !navigator.geolocation) return;
 
     navigator.geolocation.getCurrentPosition(
@@ -120,6 +124,69 @@ export const PresetNav: React.FC<PresetNavProps> = ({
       lng: activePreset.center[0],
     };
   }, [gpsLocation, referenceLocation, activePreset.center]);
+
+  // お気に入りの並び順（初期値: 近い順 'distance' / 登録順 'created'）
+  const [favoritesSortOrder, setFavoritesSortOrder] = useState<'distance' | 'created'>(() => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const saved = window.localStorage.getItem('rain3d_favorites_sort_order');
+        if (saved === 'created' || saved === 'distance') return saved;
+      }
+    } catch {
+      // ignore
+    }
+    return 'distance';
+  });
+
+  const handleToggleFavoritesSortOrder = useCallback((order: 'distance' | 'created') => {
+    setFavoritesSortOrder(order);
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem('rain3d_favorites_sort_order', order);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  // お気に入り一覧（ピン留め最上位 + 選択された並び順）
+  const sortedFavorites = useMemo(() => {
+    const list = favorites.map((fav) => {
+      const distanceMeters = effectiveRefLocation
+        ? calcDistanceMeters(
+            effectiveRefLocation.lat,
+            effectiveRefLocation.lng,
+            fav.center[1],
+            fav.center[0]
+          )
+        : undefined;
+      return {
+        preset: fav,
+        distanceMeters,
+      };
+    });
+
+    list.sort((a, b) => {
+      // 1. ピン留め優先（ピン留め地点は最上位）
+      const aPinned = Boolean(a.preset.isPinned);
+      const bPinned = Boolean(b.preset.isPinned);
+      if (aPinned !== bPinned) return aPinned ? -1 : 1;
+
+      // 2. 選択された並び順
+      if (favoritesSortOrder === 'distance') {
+        const distA = a.distanceMeters ?? Infinity;
+        const distB = b.distanceMeters ?? Infinity;
+        if (distA !== distB) return distA - distB;
+      }
+
+      // 登録順（作成日時の降順）
+      const timeA = a.preset.createdAt ? Date.parse(a.preset.createdAt) : 0;
+      const timeB = b.preset.createdAt ? Date.parse(b.preset.createdAt) : 0;
+      return timeB - timeA;
+    });
+
+    return list;
+  }, [favorites, effectiveRefLocation, favoritesSortOrder]);
 
   // 非同期検索完了時にDOM再構築とブラウザの再描画（リフロー）を即時確定させるヘルパー
   const commitSearchUiUpdate = useCallback((updater: () => void) => {
@@ -538,22 +605,59 @@ export const PresetNav: React.FC<PresetNavProps> = ({
           {/* === タブ2: ⭐ お気に入り（検索枠なし・シンプル一覧） === */}
           {activeTab === 'favorites' && (
             <div className="space-y-1.5">
-              <div className="flex items-center justify-between gap-2 text-xs text-slate-300 font-semibold px-0.5">
-                <span className="truncate">登録済みのお気に入り ({favorites.length}件)</span>
+              <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs text-slate-300 font-semibold px-0.5">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="truncate">お気に入り ({favorites.length}件)</span>
+                  {favorites.length > 1 && (
+                    <div
+                      role="radiogroup"
+                      aria-label="並び順"
+                      className="inline-flex items-center p-0.5 rounded-lg bg-slate-900/80 border border-slate-700/80 text-[11px]"
+                    >
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={favoritesSortOrder === 'distance'}
+                        onClick={() => handleToggleFavoritesSortOrder('distance')}
+                        className={`px-2 py-0.5 rounded-md font-medium transition-colors cursor-pointer ${
+                          favoritesSortOrder === 'distance'
+                            ? 'bg-sky-500 text-white font-bold shadow-sm'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        近い順
+                      </button>
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={favoritesSortOrder === 'created'}
+                        onClick={() => handleToggleFavoritesSortOrder('created')}
+                        className={`px-2 py-0.5 rounded-md font-medium transition-colors cursor-pointer ${
+                          favoritesSortOrder === 'created'
+                            ? 'bg-sky-500 text-white font-bold shadow-sm'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        登録順
+                      </button>
+                    </div>
+                  )}
+                </div>
+
                 {onOpenFavoritesSync && (
                   <button
                     type="button"
                     id="favorites-sync-open-btn"
                     onClick={onOpenFavoritesSync}
-                    title="お気に入りのバックアップ・他の端末への引き継ぎ"
+                    title="お気に入りの保存・復元"
                     className="relative inline-flex items-center gap-1 shrink-0 min-h-[30px] px-2 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/40 text-amber-200 text-[11px] font-bold transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
                   >
                     <ArrowRightLeft className="w-3.5 h-3.5" />
-                    バックアップ・引き継ぎ
+                    保存・復元
                     {backupRecommended && (
                       <span
                         className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-slate-900"
-                        aria-label="バックアップをおすすめします"
+                        aria-label="保存をおすすめします"
                       />
                     )}
                   </button>
@@ -566,15 +670,19 @@ export const PresetNav: React.FC<PresetNavProps> = ({
                 aria-label="お気に入り地点リスト"
                 className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-64 overflow-y-auto pr-1"
               >
-                {favorites.map((preset) => {
+                {sortedFavorites.map(({ preset, distanceMeters }) => {
                   const isSelected = preset.id === activePreset.id;
+                  const isPinned = Boolean(preset.isPinned);
+                  const distLabel = distanceMeters !== undefined ? formatDistanceLabel(distanceMeters) : '';
                   return (
                     <div
                       key={preset.id}
                       className={`relative flex items-center justify-between gap-1 rounded-xl transition-colors ${
                         isSelected
                           ? 'text-white font-bold shadow-md'
-                          : 'text-slate-100 hover:text-white hover:bg-slate-800/80 bg-slate-800/50 border border-slate-700/80'
+                          : isPinned
+                            ? 'text-slate-100 hover:text-white hover:bg-slate-800/90 bg-slate-800/70 border border-amber-500/40'
+                            : 'text-slate-100 hover:text-white hover:bg-slate-800/80 bg-slate-800/50 border border-slate-700/80'
                       }`}
                     >
                       {isSelected && (
@@ -593,7 +701,11 @@ export const PresetNav: React.FC<PresetNavProps> = ({
                         className="flex-1 flex flex-col items-start justify-center px-3 py-2 text-left cursor-pointer select-none min-w-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 rounded-xl"
                       >
                         <div className="flex items-center gap-1.5 w-full min-w-0">
-                          <span className="text-sm leading-none shrink-0">{preset.emoji}</span>
+                          {isPinned ? (
+                            <Pin className="w-3.5 h-3.5 text-amber-400 fill-amber-400 shrink-0" aria-label="ピン留め" />
+                          ) : (
+                            <span className="text-sm leading-none shrink-0">{preset.emoji}</span>
+                          )}
                           <span className="text-sm sm:text-xs font-semibold truncate">
                             {preset.name}
                           </span>
@@ -603,12 +715,30 @@ export const PresetNav: React.FC<PresetNavProps> = ({
                             isSelected ? 'text-sky-100' : 'text-slate-400'
                           }`}
                         >
-                          {preset.elevation > 0 ? `${preset.elevation.toLocaleString()}m · ` : ''}
+                          {favoritesSortOrder === 'distance' && distLabel ? `📍 ${distLabel} · ` : ''}
                           ズーム{preset.zoom.toFixed(1)} · 傾き{Math.round(preset.pitch)}°
                         </div>
                       </button>
 
                       <div className="flex items-center gap-0.5 pr-1 shrink-0">
+                        {onTogglePinFavorite && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onTogglePinFavorite(preset.id);
+                            }}
+                            title={isPinned ? `「${preset.name}」のピン留めを解除` : `「${preset.name}」を上部にピン留め`}
+                            aria-label={isPinned ? `「${preset.name}」のピン留めを解除` : `「${preset.name}」を上部にピン留め`}
+                            className={`p-1.5 rounded-lg transition-colors cursor-pointer shrink-0 ${
+                              isPinned
+                                ? 'text-amber-400 hover:text-amber-300 hover:bg-amber-500/20'
+                                : 'text-slate-400 hover:text-amber-300 hover:bg-slate-700/60'
+                            }`}
+                          >
+                            <Pin className={`w-3.5 h-3.5 ${isPinned ? 'fill-amber-400' : ''}`} />
+                          </button>
+                        )}
                         {onShareFavorite && (
                           <button
                             type="button"
