@@ -13,6 +13,8 @@ export interface TimelineFrameItem {
   basetime?: string;
   validtime?: string;
   tileDataset?: 'hrpns' | 'rasrf';
+  /** JMA delivery variant. Missing in legacy catalogs means the old `none` URL. */
+  member?: 'none' | 'immed';
 }
 
 export interface PresetLocation {

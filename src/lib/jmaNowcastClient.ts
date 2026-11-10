@@ -60,6 +60,7 @@ export const JMA_NOWCAST_COORDINATES: [
 interface RawJMATargetTime {
   basetime: string;
   validtime: string;
+  member?: 'none' | 'immed';
   elements?: string[];
 }
 
@@ -101,8 +102,19 @@ function formatDateTimeMinuteJST(date: Date): string {
   return `${yyyy}-${mm}-${dd} ${hh}:${min} JST`;
 }
 
+function isValidMember(member: unknown): boolean {
+  return member === undefined || member === 'none' || member === 'immed';
+}
+
+function frameMember(frame: TimelineFrameItem): 'none' | 'immed' {
+  if (!isValidMember(frame.member)) throw new WeatherRequestError('invalid-data');
+  return frame.member ?? 'none';
+}
+
 export function getJMAFrameKey(frame: TimelineFrameItem): string {
-  return `jma:${frame.tileDataset || 'hrpns'}:${frame.basetime || ''}:${frame.validtime || ''}:v1`;
+  // Keep existing none entries usable; immed must never hit a legacy none frame.
+  const suffix = frameMember(frame) === 'none' ? 'v1' : 'immed:v2';
+  return `jma:${frame.tileDataset || 'hrpns'}:${frame.basetime || ''}:${frame.validtime || ''}:${suffix}`;
 }
 
 async function fetchJsonWithTimeout<T>(url: string): Promise<T | null> {
@@ -125,7 +137,7 @@ export function loadCachedJMACatalog(): JMANowcastCatalog | null {
     const raw = ls.getItem(JMA_CATALOG_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (!parsed || (parsed.version !== undefined && parsed.version !== 1) || !Array.isArray(parsed.frames) || parsed.frames.length === 0) return null;
+    if (!parsed || ![undefined, 1, 2].includes(parsed.version) || !Array.isArray(parsed.frames) || parsed.frames.length === 0) return null;
     const frames: TimelineFrameItem[] = parsed.frames
       .filter(
         (f: any) =>
@@ -133,10 +145,12 @@ export function loadCachedJMACatalog(): JMANowcastCatalog | null {
           isValidJMATimeString(f.basetime) &&
           isValidJMATimeString(f.validtime) &&
           ["hrpns", "rasrf"].includes(f.tileDataset) &&
+          isValidMember(f.member) && (parsed.version !== 2 || f.member !== undefined) &&
           new Date(f.date).getTime() === parseJMATimeUTC(f.validtime).getTime()
       )
       .map((f: any) => ({
         ...f,
+        member: f.member ?? 'none',
         date: parseJMATimeUTC(f.validtime),
         labelJST: formatDateTimeMinuteJST(parseJMATimeUTC(f.validtime)),
         relativeBadge: typeof f.relativeBadge === 'string' ? f.relativeBadge : '保存済み',
@@ -160,9 +174,10 @@ function saveCachedJMACatalog(catalog: JMANowcastCatalog): void {
   if (!ls) return;
   try {
     const data = {
-      version: 1,
+      version: 2,
       frames: catalog.frames.map((f) => ({
         ...f,
+        member: frameMember(f),
         date: f.date.toISOString(),
       })),
       defaultIndex: catalog.defaultIndex,
@@ -208,6 +223,7 @@ async function loadJMANowcastCatalog(): Promise<JMANowcastCatalog> {
         item &&
         isValidJMATimeString(item.basetime) &&
         isValidJMATimeString(item.validtime) &&
+        isValidMember(item.member) &&
         (!item.elements || item.elements.includes('hrpns'))
     )
     .sort((a, b) => a.validtime.localeCompare(b.validtime));
@@ -225,6 +241,7 @@ async function loadJMANowcastCatalog(): Promise<JMANowcastCatalog> {
             item &&
             isValidJMATimeString(item.basetime) &&
             isValidJMATimeString(item.validtime) &&
+            isValidMember(item.member) &&
             (!item.elements || item.elements.includes('hrpns'))
         )
         .sort((a, b) => a.validtime.localeCompare(b.validtime))
@@ -237,6 +254,7 @@ async function loadJMANowcastCatalog(): Promise<JMANowcastCatalog> {
             item &&
             isValidJMATimeString(item.basetime) &&
             isValidJMATimeString(item.validtime) &&
+            isValidMember(item.member) &&
             item.basetime !== item.validtime &&
             (!item.elements || item.elements.includes('rasrf'))
         )
@@ -267,6 +285,7 @@ async function loadJMANowcastCatalog(): Promise<JMANowcastCatalog> {
       basetime: item.basetime,
       validtime: item.validtime,
       tileDataset: 'hrpns',
+      member: item.member ?? 'none',
     });
   }
 
@@ -296,6 +315,7 @@ async function loadJMANowcastCatalog(): Promise<JMANowcastCatalog> {
       basetime: item.basetime,
       validtime: item.validtime,
       tileDataset: 'hrpns',
+      member: item.member ?? 'none',
     });
   }
 
@@ -316,6 +336,7 @@ async function loadJMANowcastCatalog(): Promise<JMANowcastCatalog> {
       basetime: item.basetime,
       validtime: item.validtime,
       tileDataset: 'rasrf',
+      member: item.member ?? 'none',
     });
   }
 
@@ -382,6 +403,7 @@ async function loadRainLayer(
   frame: TimelineFrameItem,
   signal: AbortSignal
 ): Promise<GSMaPRainLayerResult> {
+  const member = frameMember(frame);
   if (signal?.aborted) {
     throw new Error('Aborted');
   }
@@ -407,8 +429,8 @@ async function loadRainLayer(
       const gx = tx - JMA_X_MIN;
       const gy = ty - JMA_Y_MIN;
       const url = isRasrf
-        ? `https://www.jma.go.jp/bosai/jmatile/data/rasrf/${frame.basetime}/none/${frame.validtime}/surf/rasrf/${JMA_TILE_Z}/${tx}/${ty}.png`
-        : `https://www.jma.go.jp/bosai/jmatile/data/nowc/${frame.basetime}/none/${frame.validtime}/surf/hrpns/${JMA_TILE_Z}/${tx}/${ty}.png`;
+        ? `https://www.jma.go.jp/bosai/jmatile/data/rasrf/${frame.basetime}/${member}/${frame.validtime}/surf/rasrf/${JMA_TILE_Z}/${tx}/${ty}.png`
+        : `https://www.jma.go.jp/bosai/jmatile/data/nowc/${frame.basetime}/${member}/${frame.validtime}/surf/hrpns/${JMA_TILE_Z}/${tx}/${ty}.png`;
       positions.push({ gx, gy, url });
     }
   }
