@@ -20,7 +20,7 @@ vi.mock('../../src/components/FavoritesSyncDialog', () => ({ FavoritesSyncDialog
 vi.mock('../../src/lib/maplibreHelper', () => ({ PRESET_LOCATIONS:[{id:'fixture',name:'fixture',center:[139,35],zoom:10,pitch:60,bearing:0,elevation:1}] }));
 vi.mock('../../src/lib/jmaNowcastClient', () => ({
   getJMAFrameKey:(f:any)=>f.validtime,
-  fetchJMANowcastCatalog:async()=>{h.catalogCalls++; return {defaultIndex:0, frames:h.frameIds.map((id,i)=>({date:new Date(`2026-11-09T0${i}:00:00Z`),labelJST:id,basetime:id,validtime:id}))};},
+  fetchJMANowcastCatalog:async()=>{h.catalogCalls++; return {defaultIndex:0, frames:h.frameIds.map(id=>({date:new Date(`2026-11-09T0${id.charCodeAt(0)-65}:00:00Z`),labelJST:id,basetime:id,validtime:id}))};},
   fetchJMANowcastRainLayer:(f:any)=>{h.frameCalls.push(f.validtime);return new Promise((resolve,reject)=>h.requests.set(f.validtime,{resolve,reject}));},
 }));
 vi.mock('../../src/lib/jaxaClient', () => ({
@@ -105,7 +105,7 @@ it('FORECAST a burst starts the latest frame without waiting for cancelled provi
  expect(h.frameCalls).toEqual(['A','H']);
  await act(async()=>{h.requests.get('H')!.resolve(frame('H'));await Promise.all(selections);});
  await act(async()=>old.resolve(frame('A')));
- expect(h.map.rainLayerData.imageUrl).toBe('H');expect(h.timeline.isWaiting).toBe(false);
+ expect(h.map.rainLayerData.imageUrl).toBe('H');expect(h.timeline.currentIndex).toBe(7);
 });
 
 it('FORECAST promoted prefetch refreshes a missing catalog once, without looping the unchanged URL',async()=>{
@@ -114,8 +114,66 @@ it('FORECAST promoted prefetch refreshes a missing catalog once, without looping
  await act(async()=>{selection=h.timeline.onSelectIndex(1);});
  await act(async()=>{h.requests.get('B')!.reject(new WeatherRequestError('http',404));await selection;});
  expect(h.catalogCalls).toBe(2);expect(h.frameCalls.filter(x=>x==='B')).toHaveLength(1);
- expect(h.map.rainLayerData.imageUrl).toBe('A');expect(h.timeline.isWaiting).toBe(true);
+ expect(h.map.rainLayerData.imageUrl).toBe('A');expect(h.timeline.currentIndex).toBe(0);
  expect(container.textContent).not.toMatch(/選択時刻の取得に失敗|雨雲データを取得できません/);
  const count=h.frameCalls.length;
  await act(async()=>h.timeline.onSelectIndex(0));expect(h.frameCalls).toHaveLength(count);
+});
+
+// Rollback perspectives: last DISPLAYED (not last prefetched) data, stopped
+// playback, obsolete failures, catalog rollover, and no successful initial frame.
+it('failed playback returns to the displayed frame, pauses, and refresh does not reselect the failure',async()=>{
+ vi.useFakeTimers();await mount();await act(async()=>h.requests.get('A')!.resolve(frame('A')));
+ await act(async()=>h.timeline.onTogglePlay());
+ await act(async()=>{await vi.advanceTimersByTimeAsync(1000);});
+ expect(h.timeline.currentIndex).toBe(1);
+ await act(async()=>h.requests.get('B')!.reject(new WeatherRequestError('http',503)));
+ expect(h.timeline.currentIndex).toBe(0);expect(h.timeline.isPlaying).toBe(false);
+ expect(h.map.rainLayerData.imageUrl).toBe('A');expect(h.timeline.isLoading).toBe(false);
+ const count=h.frameCalls.length;
+ await act(async()=>{await vi.advanceTimersByTimeAsync(3000);});expect(h.frameCalls).toHaveLength(count);
+ await act(async()=>window.dispatchEvent(new Event('online')));
+ expect(h.timeline.currentIndex).toBe(0);expect(h.timeline.isPlaying).toBe(false);
+ expect(Number(new URL(location.href).searchParams.get('t'))).toBe(new Date('2026-11-09T00:00:00Z').getTime()/1000);
+});
+
+it('rollback uses the last displayed frame, not a successful prefetch or the initial frame',async()=>{
+ h.frameIds=['A','B','C','D'];await mount();
+ await act(async()=>h.requests.get('A')!.resolve(frame('A')));
+ await act(async()=>h.requests.get('B')!.resolve(frame('B')));
+ await act(async()=>h.requests.get('C')!.resolve(frame('C')));
+ await act(async()=>h.timeline.onSelectIndex(1));
+ await act(async()=>{void h.timeline.onSelectIndex(3);});
+ await act(async()=>h.requests.get('D')!.reject(new WeatherRequestError('timeout')));
+ expect(h.timeline.currentIndex).toBe(1);expect(h.map.rainLayerData.imageUrl).toBe('B');
+});
+
+it('obsolete rejection cannot roll back a newer success or stop its playback',async()=>{
+ h.frameIds=['A','B','C'];await mount();await act(async()=>h.requests.get('A')!.resolve(frame('A')));
+ const old=h.requests.get('B')!;
+ await act(async()=>{void h.timeline.onSelectIndex(1);});
+ await act(async()=>{void h.timeline.onSelectIndex(2);});
+ await act(async()=>h.requests.get('C')!.resolve(frame('C')));
+ await act(async()=>h.timeline.onTogglePlay());
+ await act(async()=>old.reject(new WeatherRequestError('timeout')));
+ expect(h.timeline.currentIndex).toBe(2);expect(h.map.rainLayerData.imageUrl).toBe('C');
+ expect(h.timeline.isPlaying).toBe(true);
+});
+
+it('catalog rollover retains an expired displayed timestamp as the rollback destination',async()=>{
+ await mount();await act(async()=>h.requests.get('A')!.resolve(frame('A')));
+ h.frameIds=['C','D'];await act(async()=>window.dispatchEvent(new Event('online')));
+ vi.spyOn(console,'error').mockImplementation(()=>{});
+ await act(async()=>h.requests.get('C')!.reject(new WeatherRequestError('http',503)));
+ expect(h.timeline.frames.map((f:any)=>f.validtime)).toEqual(['A','C','D']);
+ expect(h.timeline.currentIndex).toBe(0);expect(h.map.rainLayerData.imageUrl).toBe('A');
+ expect(h.timeline.isPlaying).toBe(false);
+});
+
+it('initial failure has no invented successful image and stops playback',async()=>{
+ await mount();vi.spyOn(console,'error').mockImplementation(()=>{});
+ await act(async()=>h.timeline.onTogglePlay());
+ await act(async()=>h.requests.get('A')!.reject(new WeatherRequestError('timeout')));
+ expect(h.map.rainLayerData).toBeNull();expect(h.timeline.displayedFrame).toBeNull();
+ expect(h.timeline.isPlaying).toBe(false);expect(h.timeline.isLoading).toBe(false);
 });

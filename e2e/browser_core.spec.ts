@@ -48,13 +48,40 @@ async function tenHours(page:Page){
  await slider.press('End');await slider.press('ArrowLeft');
 }
 function forecastCount(state:any){return Object.entries(state.forecastRequests).filter(([url])=>url.includes('/none/20261109160000/')).reduce((n,[,count])=>n+Number(count),0);}
+// Sample actual layout each animation frame, including the in-flight transition.
+// Endpoint-only measurements would miss a temporary status row appearing/disappearing.
+async function startTimelineLayoutSample(page:Page){
+ await page.evaluate(()=>{
+  const samples:any[]=[];let raf=0;
+  const sample=()=>{
+   const slider=document.querySelector('#timeline-seek-slider')!;const panel=slider.closest('section')!;
+   const rect=(el:Element)=>{const r=el.getBoundingClientRect();return [r.x,r.y,r.width,r.height];};
+   samples.push({panel:rect(panel),slider:rect(slider),busy:panel.getAttribute('aria-busy'),status:!!document.querySelector('#timeline-data-state')});
+   raf=requestAnimationFrame(sample);
+  };
+  sample();(window as any).__finishTimelineSample=()=>{cancelAnimationFrame(raf);return samples;};
+ });
+}
+async function expectStableTimeline(page:Page){
+ const samples=await page.evaluate(()=>(window as any).__finishTimelineSample());
+ expect(samples.length).toBeGreaterThan(2);expect(samples.some((s:any)=>s.busy==='true')).toBe(true);
+ expect(samples.some((s:any)=>s.status)).toBe(false);
+ for(const element of ['panel','slider'])for(let i=0;i<4;i++){
+  const values=samples.map((s:any)=>s[element][i]);
+  expect(Math.max(...values)-Math.min(...values),`${element} coordinate ${i}`).toBeLessThanOrEqual(1);
+ }
+ await expect(page.locator('#timeline-data-state')).toHaveCount(0);
+}
 test('FORECAST transient 10h failure recovers automatically and existing cache survives offline reload',async({page,request,context},info)=>{
+ await page.setViewportSize({width:390,height:844});
  await request.get('/__test/config?forecast=retry');await page.goto(point);await controlled(page);await page.reload();
  await expect(page.locator('#timeline-status-pill')).toHaveText('現在');
  await page.evaluate(async()=>{await(await caches.open('foreign-keep')).put('/keep',new Response('keep'));});
  // Functional recovery uses the product's 18-second whole-frame deadline;
  // the request-count assertions below enforce the I/O budget independently.
+ await startTimelineLayoutSample(page);
  await tenHours(page);await expect(page.locator('#timeline-timestamp-badge')).toContainText('11/10 01:00',{timeout:19000});
+ await expectStableTimeline(page);
  await expect(page.locator('#timeline-status-pill')).toHaveText('予測');
  const first=await(await request.get('/__test/state')).json();expect(forecastCount(first)).toBe(40);
  await page.getByRole('slider').press('Home');await expect(page.locator('#timeline-status-pill')).toHaveText('現在');
@@ -73,14 +100,36 @@ test('FORECAST transient 10h failure recovers automatically and existing cache s
  await expect(page.getByText(/選択時刻の取得に失敗|雨雲データを取得できません/)).toHaveCount(0);
  await info.attach('forecast-cache-counts',{body:JSON.stringify({first,after:await(await request.get('/__test/state')).json()}),contentType:'application/json'});
 });
-test('FORECAST persistent failure stays quiet and keeps actual observation time and values',async({page,request})=>{
+test('FORECAST persistent failure rolls back without moving the controller or slider',async({page,request})=>{
+ await page.setViewportSize({width:320,height:740});
  await request.get('/__test/config?forecast=unavailable');await page.goto(point);await controlled(page);
- await expect(page.locator('#timeline-status-pill')).toHaveText('現在');await tenHours(page);
- await expect(page.locator('#timeline-data-state')).toContainText('更新待ち',{timeout:15000});
+ await expect(page.locator('#timeline-status-pill')).toHaveText('現在');
+ await startTimelineLayoutSample(page);await tenHours(page);
+ await expect(page.getByRole('slider')).toHaveValue('5');
+ await expect(page.getByRole('slider')).toHaveValue('0',{timeout:19000});
+ await expectStableTimeline(page);
+ await expect(page.locator('#timeline-play-btn')).toHaveAttribute('aria-label','タイムラプスを再生');
  await expect(page.locator('#timeline-timestamp-badge')).toContainText('11/09 15:00');
  await expect(page.locator('#timeline-status-pill')).toHaveText('現在');
  await expect(page.locator('#inspector-rain-value')).toContainText('0.0');
  await expect(page.getByText(/選択時刻の取得に失敗|雨雲データを取得できません|再試行してください/)).toHaveCount(0);
+ expect(forecastCount(await(await request.get('/__test/state')).json())).toBe(60);
+});
+test('FORECAST failed autoplay returns to its last displayed forecast and pauses',async({page,request})=>{
+ await page.setViewportSize({width:390,height:844});
+ await request.get('/__test/config?forecast=unavailable');await page.goto(point);await controlled(page);
+ await expect(page.locator('#timeline-status-pill')).toHaveText('現在');
+ await page.evaluate(()=>{
+  const slider=document.querySelector<HTMLInputElement>('#timeline-seek-slider')!;
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(slider,'4');
+  slider.dispatchEvent(new Event('input',{bubbles:true}));
+ });
+ await expect(page.locator('#timeline-timestamp-badge')).toContainText('11/09 22:00');
+ await page.locator('#timeline-play-btn').click();await expect(page.getByRole('slider')).toHaveValue('5');
+ await expect(page.getByRole('slider')).toHaveValue('4',{timeout:19000});
+ await expect(page.locator('#timeline-play-btn')).toHaveAttribute('aria-label','タイムラプスを再生');
+ await expect(page.locator('#timeline-timestamp-badge')).toContainText('11/09 22:00');
+ await expect(page.locator('#timeline-data-state')).toHaveCount(0);
  expect(forecastCount(await(await request.get('/__test/state')).json())).toBe(60);
 });
 test('FORECAST observation nowcast and 6h 7h 10h 15h boundaries show the actual frame',async({page,request})=>{
@@ -113,7 +162,7 @@ test('FORECAST burst coalesces and cancelled old frame cannot overwrite a later 
   for(const index of [6,5,0]){setValue.call(slider,String(index));slider.dispatchEvent(new Event('input',{bubbles:true}));}
  });
  await expect(slider).toHaveValue('0');
- await expect(page.locator('#timeline-data-state')).toBeHidden();
+ await expect(page.getByRole('region',{name:'雨雲タイムラプスコントローラー'})).toHaveAttribute('aria-busy','false');
  expect(forecastCount(await(await request.get('/__test/state')).json())).toBe(0);
  await tenHours(page);
  await expect.poll(async()=>forecastCount(await(await request.get('/__test/state')).json())).toBeGreaterThan(0);
@@ -122,6 +171,7 @@ test('FORECAST burst coalesces and cancelled old frame cannot overwrite a later 
  await request.get('/__test/release-forecast');
  await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))));
  await expect(page.locator('#timeline-timestamp-badge')).toContainText('11/10 06:00');
+ await expect(slider).toHaveValue('6');
  expect(forecastCount(await(await request.get('/__test/state')).json())).toBeLessThanOrEqual(4);
 });
 

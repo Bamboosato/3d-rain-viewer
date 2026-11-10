@@ -165,13 +165,16 @@ export const App: React.FC = () => {
   );
 
   const [timelineFrames, setTimelineFrames] = useState<TimelineFrameItem[]>([]);
+  const timelineFramesRef = useRef<TimelineFrameItem[]>([]);
+  const replaceTimelineFrames = useCallback((frames: TimelineFrameItem[]) => {
+    timelineFramesRef.current = frames;
+    setTimelineFrames(frames);
+  }, []);
   const [currentTimeIndex, setCurrentTimeIndex] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [playbackSpeed, setPlaybackSpeed] = useState<1 | 2>(1);
   const [cachedCount, setCachedCount] = useState<number>(0);
 
-  const [rainWaiting, setRainWaiting] = useState(false);
-  const [catalogNotice, setCatalogNotice] = useState<string | null>(null);
   const [catalogRevision, setCatalogRevision] = useState(0);
   const selectedTimeRef = useRef<Date | null>(null);
   const refreshCatalog = useCallback(() => {
@@ -275,6 +278,25 @@ export const App: React.FC = () => {
   const activeRequestIdRef = useRef<number>(0);
   const schedulerRef = useRef(new FrameScheduler());
   const activeFrameRef = useRef<GSMaPRainLayerResult | null>(null);
+  const restoreDisplayedTime = useCallback((source: RainSourceId, requestId: number) => {
+    // An obsolete failure must never move the newest selection or stop playback.
+    if (requestId !== activeRequestIdRef.current) return;
+    setIsPlaying(false);
+    setIsLoadingRain(false);
+    const displayed = activeFrameRef.current;
+    const frame = displayed?.timelineFrame;
+    if (!frame || displayed.sourceType !== source) return;
+    let frames = timelineFramesRef.current;
+    let index = frames.findIndex(item => item.date.getTime() === frame.date.getTime());
+    if (index < 0) {
+      // Retain the actually displayed timestamp even after a catalog rollover.
+      frames = [...frames, frame].sort((a, b) => a.date.getTime() - b.date.getTime());
+      index = frames.indexOf(frame);
+      replaceTimelineFrames(frames);
+    }
+    selectedTimeRef.current = frame.date;
+    setCurrentTimeIndex(index);
+  }, [replaceTimelineFrames]);
   const frameControllers = useRef(new Map<string, { controller: AbortController; foreground: boolean; schedulerSignal?: AbortSignal }>());
   useEffect(() => {
     const stop = () => {
@@ -365,7 +387,7 @@ export const App: React.FC = () => {
                   if (!replacement || getFrameKey(source, replacement) === cacheKey) throw error;
                   targetFrame = replacement;
                   jmaFramesCatalogRef.current = catalog;
-                  setTimelineFrames(catalog.frames); setCurrentTimeIndex(replacementIndex);
+                  replaceTimelineFrames(catalog.frames); setCurrentTimeIndex(replacementIndex);
                   const cached = cacheMap.get(getFrameKey(source, replacement));
                   result = cached && cached.status !== 'partial' ? cached : await fetchJMANowcastRainLayer(replacement, signal);
                 }
@@ -397,7 +419,7 @@ export const App: React.FC = () => {
 
       return await pending;
     },
-    [getCacheForSource, getFrameKey]
+    [getCacheForSource, getFrameKey, replaceTimelineFrames]
   );
 
   // 初回マウント時に AW3D30 標高インスペクター用データを事前ロード（共有URLの `name` 指定時は標高も即時取得）
@@ -441,14 +463,12 @@ export const App: React.FC = () => {
           if (!jmaFramesCatalogRef.current) {
             const catalog = await fetchJMANowcastCatalog();
             jmaFramesCatalogRef.current = catalog;
-            if (mounted && reqId === activeRequestIdRef.current) setCatalogNotice(catalog.isStale ? '保存済みの時刻一覧' : catalog.isPartial ? '利用可能な時刻を表示' : null);
           }
           frames = jmaFramesCatalogRef.current.frames;
           defaultIdx = jmaFramesCatalogRef.current.defaultIndex;
         } else {
           if (!gsmapFramesCatalogRef.current) {
             const catalog = await fetchGSMaPTimelineCatalog(true);
-            if (mounted && reqId === activeRequestIdRef.current) setCatalogNotice(catalog.isStale ? '保存済みの時刻一覧' : null);
             const maxIdx = Math.max(0, catalog.dates.length - 1);
             const gsmapFrames: TimelineFrameItem[] = catalog.dates.map((d, idx) => {
               const hoursAgo = maxIdx - idx;
@@ -493,20 +513,19 @@ export const App: React.FC = () => {
         }
 
         const cacheMap = getCacheForSource(activeSource);
-        setTimelineFrames(frames);
+        replaceTimelineFrames(frames);
         setCurrentTimeIndex(targetIdx);
         selectedTimeRef.current = frames[targetIdx]?.date ?? null;
         setCachedCount(cacheMap.size);
 
         const initialRain = await loadFrameAtIndex(activeSource, targetIdx, frames, true);
         if (!mounted || reqId !== activeRequestIdRef.current) return;
-        if (!initialRain) { setRainWaiting(true); setIsLoadingRain(false); return; }
+        if (!initialRain) { restoreDisplayedTime(activeSource, reqId); return; }
 
         setActiveRainLayerResult(initialRain);
         activeFrameRef.current = initialRain;
         trimFrames([jmaCacheRef.current, gsmapCacheRef.current], initialRain);
         setRainLayerData(initialRain);
-        setRainWaiting(false);
 
         const [lng, lat] = activePreset.center;
         const inspected = inspectLocationValues(lng, lat);
@@ -541,8 +560,7 @@ export const App: React.FC = () => {
       } catch (err) {
         console.error(`Failed to initialize rain source (${activeSource}):`, err);
         if (mounted && reqId === activeRequestIdRef.current) {
-          setRainWaiting(true);
-          setIsLoadingRain(false);
+          restoreDisplayedTime(activeSource, reqId);
         }
       }
     };
@@ -553,7 +571,7 @@ export const App: React.FC = () => {
       for (const entry of frameControllers.current.values()) entry.controller.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rainSource, catalogRevision, loadFrameAtIndex, getCacheForSource]);
+  }, [rainSource, catalogRevision, loadFrameAtIndex, getCacheForSource, replaceTimelineFrames, restoreDisplayedTime]);
 
   // 時系列インデックス変更時に該当時刻の雨雲データを即時反映 (要求世代管理・FIX-05)
   const handlePreviewTimeIndex = useCallback((index: number) => {
@@ -588,7 +606,6 @@ export const App: React.FC = () => {
         setActiveRainLayerResult(cached);
         touchFrame(cached); activeFrameRef.current = cached;
         setRainLayerData(cached);
-        setRainWaiting(false);
         setIsLoadingRain(false);
         const [lng, lat] = activePreset.center;
         const val = inspectLocationValues(lng, lat);
@@ -613,7 +630,6 @@ export const App: React.FC = () => {
           activeFrameRef.current = result;
           trimFrames([jmaCacheRef.current, gsmapCacheRef.current], result);
           setRainLayerData(result);
-          setRainWaiting(false);
           const [lng, lat] = activePreset.center;
           const val = inspectLocationValues(lng, lat);
           setActivePresetRain(val.precipitation);
@@ -625,18 +641,16 @@ export const App: React.FC = () => {
                 }
               : null
           );
-        } else if (reqId === activeRequestIdRef.current && !result) { setRainWaiting(true); }
+        } else if (!result) { restoreDisplayedTime(rainSource, reqId); }
       } catch (err) {
-        if (reqId === activeRequestIdRef.current) {
-          setRainWaiting(true); setIsPlaying(false);
-        }
+        restoreDisplayedTime(rainSource, reqId);
       } finally {
         if (reqId === activeRequestIdRef.current) {
           setIsLoadingRain(false);
         }
       }
     },
-    [timelineFrames, rainSource, activePreset.center, getCacheForSource, loadFrameAtIndex, getFrameKey]
+    [timelineFrames, rainSource, activePreset.center, getCacheForSource, loadFrameAtIndex, getFrameKey, restoreDisplayedTime]
   );
 
   // URLパラメータを即座に最新状態へ同期（共有ボタン押下時の即時フラッシュにも使用）
@@ -731,7 +745,7 @@ export const App: React.FC = () => {
 
   // 機能A-2: タイムラプス自動コマ送り・ループ再生（1x: 1000ms / 2x: 500ms）
   useEffect(() => {
-    if (!isPlaying || isLoadingRain || rainWaiting || timelineFrames.length <= 1) return;
+    if (!isPlaying || isLoadingRain || timelineFrames.length <= 1) return;
 
     const intervalMs = playbackSpeed === 2 ? 500 : 1000;
     const timer = window.setInterval(() => {
@@ -740,7 +754,7 @@ export const App: React.FC = () => {
     }, intervalMs);
 
     return () => window.clearInterval(timer);
-  }, [isPlaying, isLoadingRain, rainWaiting, playbackSpeed, currentTimeIndex, timelineFrames.length, handleSelectTimeIndex]);
+  }, [isPlaying, isLoadingRain, playbackSpeed, currentTimeIndex, timelineFrames.length, handleSelectTimeIndex]);
 
   // 山岳プリセット・お気に入り・検索地点切替 (View Transitions API 連動 + インスペクター自動表示)
   const handleSelectPreset = useCallback(
@@ -1484,8 +1498,6 @@ export const App: React.FC = () => {
           onToggleSpeed={() => setPlaybackSpeed((prev) => (prev === 1 ? 2 : 1))}
           observedDateJST={rainLayerData?.formattedDateJST ?? ''}
           displayedFrame={rainLayerData?.timelineFrame ?? null}
-          isWaiting={rainWaiting}
-          dataNotice={rainLayerData?.status === 'partial' ? '一部欠測' : catalogNotice}
           isLoading={isLoadingRain}
           cachedCount={cachedCount}
         />
