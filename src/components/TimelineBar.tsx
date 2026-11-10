@@ -7,6 +7,8 @@ import {
   Clock,
 } from 'lucide-react';
 import type { RainSourceId, TimelineFrameItem } from '../types/map';
+import type { PointTimeseriesResult } from '../lib/pointTimeseriesClient';
+import { RainfallChart } from './RainfallChart';
 
 interface TimelineBarProps {
   rainSource: RainSourceId;
@@ -23,6 +25,12 @@ interface TimelineBarProps {
   displayedFrame?: TimelineFrameItem | null;
   isLoading: boolean;
   cachedCount?: number;
+  // 引き出し式雨量グラフ用プロパティ
+  timeseries?: PointTimeseriesResult | null;
+  isTimeseriesLoading?: boolean;
+  centerCoords?: { lng: number; lat: number };
+  isDrawerOpen?: boolean;
+  onToggleDrawer?: (open: boolean) => void;
 }
 
 /**
@@ -50,7 +58,71 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
   observedDateJST,
   displayedFrame,
   isLoading,
+  timeseries,
+  isTimeseriesLoading = false,
+  centerCoords,
+  isDrawerOpen: propDrawerOpen,
+  onToggleDrawer,
 }) => {
+  const [internalDrawerOpen, setInternalDrawerOpen] = useState(false);
+  const isDrawerOpen = propDrawerOpen !== undefined ? propDrawerOpen : internalDrawerOpen;
+  const toggleDrawer = (open: boolean) => {
+    if (onToggleDrawer) {
+      onToggleDrawer(open);
+    } else {
+      setInternalDrawerOpen(open);
+    }
+  };
+
+  const dragStartYRef = useRef<number | null>(null);
+  const hasDraggedRef = useRef(false);
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    dragStartYRef.current = e.clientY;
+    hasDraggedRef.current = false;
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (dragStartYRef.current === null) return;
+    e.stopPropagation();
+    const deltaY = e.clientY - dragStartYRef.current;
+    if (Math.abs(deltaY) > 6) {
+      hasDraggedRef.current = true;
+    }
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    if (dragStartYRef.current === null) return;
+    e.stopPropagation();
+    const deltaY = e.clientY - dragStartYRef.current;
+    dragStartYRef.current = null;
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {
+      // ignore
+    }
+
+    if (!hasDraggedRef.current) {
+      // 単純クリック／タップ時はトグル
+      toggleDrawer(!isDrawerOpen);
+    } else {
+      // ドラッグ距離閾値 (30px) でスナップ判定
+      if (deltaY < -30) {
+        // 上へプルアップ -> 開く
+        toggleDrawer(true);
+      } else if (deltaY > 30) {
+        // 下へプルダウン -> 格納
+        toggleDrawer(false);
+      }
+    }
+  };
+
   const [thumbIndex, setThumbIndex] = useState(currentIndex);
   const pending = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const latest = useRef({ onSelectIndex, currentIndex }); latest.current = { onSelectIndex, currentIndex };
@@ -94,8 +166,48 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
     <section
       aria-label="雨雲タイムラプスコントローラー"
       aria-busy={isLoading}
-      className="pointer-events-auto rounded-2xl bg-slate-900/90 backdrop-blur-md border border-slate-700/80 shadow-2xl px-3 sm:px-4 py-2 sm:py-2.5 text-sm text-slate-100 w-full max-w-xl overflow-hidden"
+      className="pointer-events-auto rounded-2xl bg-slate-900/90 backdrop-blur-md border border-slate-700/80 shadow-2xl px-3 sm:px-4 pt-1.5 pb-2.5 sm:pb-3 text-sm text-slate-100 w-full max-w-xl overflow-hidden transition-all duration-300"
     >
+      {/* タイムライン上部のプルアップ／プルダウン引き出しドラッグハンドル */}
+      <div
+        id="timeline-drawer-handle"
+        role="button"
+        tabIndex={0}
+        aria-label={isDrawerOpen ? '降水量推移グラフを閉じる' : '降水量推移グラフを引き出す'}
+        aria-expanded={isDrawerOpen}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        className="w-full pt-0.5 pb-2 -mt-0.5 flex flex-col items-center justify-center cursor-grab active:cursor-grabbing touch-none select-none group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 rounded-lg"
+      >
+        <div className="w-12 h-1.5 rounded-full bg-slate-400/60 group-hover:bg-slate-300 transition-colors shadow-xs" />
+        <span className="text-[10px] text-slate-400 group-hover:text-slate-300 font-medium tracking-tight mt-0.5 transition-colors">
+          {isDrawerOpen ? '▼ グラフを閉じる' : '▲ 降水量推移グラフ'}
+        </span>
+      </div>
+
+      {/* ボトムシート引き出し式 降水量推移グラフ領域 */}
+      <div
+        id="timeline-drawer-content"
+        className={`transition-all duration-300 ease-out overflow-hidden ${
+          isDrawerOpen
+            ? 'max-h-64 opacity-100 mb-2.5 pb-2 border-b border-slate-700/70'
+            : 'max-h-0 opacity-0 pointer-events-none'
+        }`}
+      >
+        {isDrawerOpen && (
+          <RainfallChart
+            timeseries={timeseries ?? null}
+            currentIndex={thumbIndex}
+            onSelectIndex={select}
+            isLoading={isTimeseriesLoading}
+            rainSource={rainSource}
+            centerCoords={centerCoords}
+          />
+        )}
+      </div>
+
       {/* 1行目: PC・スマホ共通のシンプルな操作バー（左:再生コントロール / 右:日時＋過去・現在・予測） */}
       <div className="flex flex-nowrap items-center justify-between gap-1.5 sm:gap-2 min-w-0 whitespace-nowrap">
         {/* 左側: 再生・コマ送り・速度ボタン */}
