@@ -1,6 +1,7 @@
 import { diagnostic } from './lib/diagnostics';
 import { useUpdateBlocker } from './lib/updateGuard';
 import { bounded } from './lib/asyncLifecycle';
+import { weatherDeadline, WeatherRequestError, WEATHER_FRAME_MS } from './lib/weatherRequests';
 import { FrameScheduler, touchFrame, trimFrames } from './lib/frameBudget';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type * as maplibregl from 'maplibre-gl';
@@ -169,7 +170,7 @@ export const App: React.FC = () => {
   const [playbackSpeed, setPlaybackSpeed] = useState<1 | 2>(1);
   const [cachedCount, setCachedCount] = useState<number>(0);
 
-  const [rainError, setRainError] = useState<string | null>(null);
+  const [rainWaiting, setRainWaiting] = useState(false);
   const [catalogNotice, setCatalogNotice] = useState<string | null>(null);
   const [catalogRevision, setCatalogRevision] = useState(0);
   const selectedTimeRef = useRef<Date | null>(null);
@@ -274,11 +275,20 @@ export const App: React.FC = () => {
   const activeRequestIdRef = useRef<number>(0);
   const schedulerRef = useRef(new FrameScheduler());
   const activeFrameRef = useRef<GSMaPRainLayerResult | null>(null);
-  const frameControllers = useRef(new Map<string, { controller: AbortController; foreground: boolean }>());
+  const frameControllers = useRef(new Map<string, { controller: AbortController; foreground: boolean; schedulerSignal?: AbortSignal }>());
   useEffect(() => {
-    const hide = () => { if (document.visibilityState === 'hidden') for (const entry of frameControllers.current.values()) if (!entry.foreground) entry.controller.abort(); };
+    const stop = () => {
+      for (const entry of frameControllers.current.values()) entry.controller.abort();
+      setIsPlaying(false); setIsLoadingRain(false);
+    };
+    const hide = () => { if (document.visibilityState === 'hidden') stop(); };
     document.addEventListener('visibilitychange', hide);
-    return () => { document.removeEventListener('visibilitychange', hide); for (const entry of frameControllers.current.values()) entry.controller.abort(); };
+    window.addEventListener('pagehide', stop); window.addEventListener('offline', stop);
+    return () => {
+      document.removeEventListener('visibilitychange', hide);
+      window.removeEventListener('pagehide', stop); window.removeEventListener('offline', stop);
+      for (const entry of frameControllers.current.values()) entry.controller.abort();
+    };
   }, []);
 
   const getCacheForSource = useCallback((source: RainSourceId) => {
@@ -301,10 +311,15 @@ export const App: React.FC = () => {
       isForeground: boolean
     ): Promise<GSMaPRainLayerResult | null> => {
       const started = performance.now();
-      const targetFrame = framesList[index];
+      let targetFrame = framesList[index];
       if (!targetFrame) return null;
 
       const cacheKey = getFrameKey(source, targetFrame);
+      const reqKey = `${source}:${cacheKey}`;
+      // Generation guards protect state; cancellation also protects I/O and queues.
+      if (isForeground) for (const [key, entry] of frameControllers.current) {
+        if (key !== reqKey) entry.controller.abort();
+      }
       const cacheMap = getCacheForSource(source);
       const existing = cacheMap.get(cacheKey);
       if (existing && existing.status !== 'partial') {
@@ -316,33 +331,57 @@ export const App: React.FC = () => {
         return existing;
       }
 
-      const reqKey = `${source}:${cacheKey}`;
       let pending = inFlightRequestsRef.current.get(reqKey);
       const running = frameControllers.current.get(reqKey);
       if (running?.controller.signal.aborted) pending = undefined;
       else if (running && isForeground) {
         running.foreground = true;
-        schedulerRef.current.promote(running.controller.signal);
+        schedulerRef.current.promote(running.schedulerSignal ?? running.controller.signal);
       }
       if (!pending) {
         const controller = new AbortController();
-        if (!isForeground && document.visibilityState === 'hidden') return null;
-        if (isForeground) for (const [key, entry] of frameControllers.current) if (!entry.foreground && key !== reqKey) entry.controller.abort();
+        if (document.visibilityState === 'hidden') return null;
         frameControllers.current.set(reqKey, { controller, foreground: isForeground });
+        const frameTimeout = source === 'jma-nowcast' ? WEATHER_FRAME_MS : 25000;
         const fetchPromise = (async () => {
           try {
-            const res = await schedulerRef.current.run(isForeground, () => bounded(
-              source === 'jma-nowcast' ? fetchJMANowcastRainLayer(targetFrame, controller.signal)
-                : fetchGSMaPRainLayer(targetFrame.date, false, controller.signal), 25000, controller.signal), controller.signal);
+            const res = await weatherDeadline(frameTimeout, controller.signal, signal => {
+              const entry = frameControllers.current.get(reqKey);
+              if (entry?.controller === controller) entry.schedulerSignal = signal;
+              return schedulerRef.current.run(isForeground, async () => {
+                signal.throwIfAborted();
+                let result: GSMaPRainLayerResult;
+                try {
+                  result = await bounded(source === 'jma-nowcast' ? fetchJMANowcastRainLayer(targetFrame, signal)
+                    : fetchGSMaPRainLayer(targetFrame.date, false, signal), frameTimeout, signal);
+                } catch (error) {
+                  signal.throwIfAborted();
+                  if (source !== 'jma-nowcast' || !frameControllers.current.get(reqKey)?.foreground || !(error instanceof WeatherRequestError) || !error.refreshCatalog) throw error;
+                  // Refresh once, and only fetch again if the same valid time has a new key.
+                  const catalog = await bounded(fetchJMANowcastCatalog(), WEATHER_FRAME_MS, signal);
+                  signal.throwIfAborted();
+                  const replacementIndex = catalog.frames.findIndex(f => f.date.getTime() === targetFrame.date.getTime());
+                  const replacement = catalog.frames[replacementIndex];
+                  if (!replacement || getFrameKey(source, replacement) === cacheKey) throw error;
+                  targetFrame = replacement;
+                  jmaFramesCatalogRef.current = catalog;
+                  setTimelineFrames(catalog.frames); setCurrentTimeIndex(replacementIndex);
+                  const cached = cacheMap.get(getFrameKey(source, replacement));
+                  result = cached && cached.status !== 'partial' ? cached : await fetchJMANowcastRainLayer(replacement, signal);
+                }
+                signal.throwIfAborted();
+                return { ...result, timelineFrame: targetFrame };
+              }, signal);
+            });
             if (res && res.status !== 'failure' && !controller.signal.aborted) {
-              cacheMap.set(cacheKey, res); touchFrame(res);
+              cacheMap.set(getFrameKey(source, targetFrame), res); touchFrame(res);
               trimFrames([jmaCacheRef.current, gsmapCacheRef.current], activeFrameRef.current);
               setCachedCount(cacheMap.size);
             }
             diagnostic({ operation: 'frame', backend: 'network', outcome: 'success', durationMs: performance.now() - started, generation: activeRequestIdRef.current });
             return res;
           } catch (error) {
-            diagnostic({ operation: 'frame', backend: 'network', outcome: 'failure', error: controller.signal.aborted ? 'cancelled' : 'network', durationMs: performance.now() - started });
+            diagnostic({ operation: 'frame', backend: 'network', outcome: 'failure', error: controller.signal.aborted ? 'cancelled' : error instanceof WeatherRequestError ? error.kind : 'network', durationMs: performance.now() - started });
             throw error;
           } finally {
             if (inFlightRequestsRef.current.get(reqKey) === pending) {
@@ -402,14 +441,14 @@ export const App: React.FC = () => {
           if (!jmaFramesCatalogRef.current) {
             const catalog = await fetchJMANowcastCatalog();
             jmaFramesCatalogRef.current = catalog;
-            if (mounted && reqId === activeRequestIdRef.current) setCatalogNotice(catalog.isStale ? `保存済みカタログ（${catalog.savedAt ?? "取得日時不明"}）・更新失敗` : catalog.isPartial ? "一部の予測カタログを取得できません。実況を表示しています。" : null);
+            if (mounted && reqId === activeRequestIdRef.current) setCatalogNotice(catalog.isStale ? '保存済みの時刻一覧' : catalog.isPartial ? '利用可能な時刻を表示' : null);
           }
           frames = jmaFramesCatalogRef.current.frames;
           defaultIdx = jmaFramesCatalogRef.current.defaultIndex;
         } else {
           if (!gsmapFramesCatalogRef.current) {
             const catalog = await fetchGSMaPTimelineCatalog(true);
-            if (mounted && reqId === activeRequestIdRef.current) setCatalogNotice(catalog.isStale ? `保存済みカタログ（${catalog.savedAt ?? "取得日時不明"}）・更新失敗` : null);
+            if (mounted && reqId === activeRequestIdRef.current) setCatalogNotice(catalog.isStale ? '保存済みの時刻一覧' : null);
             const maxIdx = Math.max(0, catalog.dates.length - 1);
             const gsmapFrames: TimelineFrameItem[] = catalog.dates.map((d, idx) => {
               const hoursAgo = maxIdx - idx;
@@ -460,13 +499,14 @@ export const App: React.FC = () => {
         setCachedCount(cacheMap.size);
 
         const initialRain = await loadFrameAtIndex(activeSource, targetIdx, frames, true);
-        if (!mounted || reqId !== activeRequestIdRef.current || !initialRain) return;
+        if (!mounted || reqId !== activeRequestIdRef.current) return;
+        if (!initialRain) { setRainWaiting(true); setIsLoadingRain(false); return; }
 
         setActiveRainLayerResult(initialRain);
         activeFrameRef.current = initialRain;
         trimFrames([jmaCacheRef.current, gsmapCacheRef.current], initialRain);
         setRainLayerData(initialRain);
-        setRainError(null);
+        setRainWaiting(false);
 
         const [lng, lat] = activePreset.center;
         const inspected = inspectLocationValues(lng, lat);
@@ -501,7 +541,7 @@ export const App: React.FC = () => {
       } catch (err) {
         console.error(`Failed to initialize rain source (${activeSource}):`, err);
         if (mounted && reqId === activeRequestIdRef.current) {
-          setRainError("雨雲データを取得できません。再試行してください。");
+          setRainWaiting(true);
           setIsLoadingRain(false);
         }
       }
@@ -516,6 +556,16 @@ export const App: React.FC = () => {
   }, [rainSource, catalogRevision, loadFrameAtIndex, getCacheForSource]);
 
   // 時系列インデックス変更時に該当時刻の雨雲データを即時反映 (要求世代管理・FIX-05)
+  const handlePreviewTimeIndex = useCallback((index: number) => {
+    const frame = timelineFrames[index];
+    if (!frame) return;
+    ++activeRequestIdRef.current;
+    selectedTimeRef.current = frame.date;
+    setCurrentTimeIndex(index); setIsLoadingRain(true); setIsPlaying(false);
+    const key = `${rainSource}:${getFrameKey(rainSource, frame)}`;
+    for (const [requestKey, entry] of frameControllers.current) if (requestKey !== key) entry.controller.abort();
+  }, [timelineFrames, rainSource, getFrameKey]);
+
   const handleSelectTimeIndex = useCallback(
     async (index: number) => {
       setCurrentTimeIndex(index);
@@ -527,6 +577,9 @@ export const App: React.FC = () => {
       if (!targetFrame) return;
 
       const cacheKey = getFrameKey(rainSource, targetFrame);
+      for (const [key, entry] of frameControllers.current) {
+        if (key !== `${rainSource}:${cacheKey}`) entry.controller.abort();
+      }
       const cacheMap = getCacheForSource(rainSource);
       const cached = cacheMap.get(cacheKey);
 
@@ -535,7 +588,7 @@ export const App: React.FC = () => {
         setActiveRainLayerResult(cached);
         touchFrame(cached); activeFrameRef.current = cached;
         setRainLayerData(cached);
-        setRainError(null);
+        setRainWaiting(false);
         setIsLoadingRain(false);
         const [lng, lat] = activePreset.center;
         const val = inspectLocationValues(lng, lat);
@@ -560,7 +613,7 @@ export const App: React.FC = () => {
           activeFrameRef.current = result;
           trimFrames([jmaCacheRef.current, gsmapCacheRef.current], result);
           setRainLayerData(result);
-          setRainError(null);
+          setRainWaiting(false);
           const [lng, lat] = activePreset.center;
           const val = inspectLocationValues(lng, lat);
           setActivePresetRain(val.precipitation);
@@ -572,10 +625,10 @@ export const App: React.FC = () => {
                 }
               : null
           );
-        }
+        } else if (reqId === activeRequestIdRef.current && !result) { setRainWaiting(true); }
       } catch (err) {
         if (reqId === activeRequestIdRef.current) {
-          setRainError('選択時刻の取得に失敗しました。表示中の画像は前の時刻です。');
+          setRainWaiting(true); setIsPlaying(false);
         }
       } finally {
         if (reqId === activeRequestIdRef.current) {
@@ -667,6 +720,7 @@ export const App: React.FC = () => {
     (nextSource: RainSourceId) => {
       if (nextSource === rainSource) return;
       ++activeRequestIdRef.current;
+      for (const entry of frameControllers.current.values()) entry.controller.abort();
       runViewTransition(() => {
         setIsPlaying(false);
         setRainSource(nextSource);
@@ -677,7 +731,7 @@ export const App: React.FC = () => {
 
   // 機能A-2: タイムラプス自動コマ送り・ループ再生（1x: 1000ms / 2x: 500ms）
   useEffect(() => {
-    if (!isPlaying || timelineFrames.length <= 1) return;
+    if (!isPlaying || isLoadingRain || rainWaiting || timelineFrames.length <= 1) return;
 
     const intervalMs = playbackSpeed === 2 ? 500 : 1000;
     const timer = window.setInterval(() => {
@@ -686,7 +740,7 @@ export const App: React.FC = () => {
     }, intervalMs);
 
     return () => window.clearInterval(timer);
-  }, [isPlaying, playbackSpeed, currentTimeIndex, timelineFrames.length, handleSelectTimeIndex]);
+  }, [isPlaying, isLoadingRain, rainWaiting, playbackSpeed, currentTimeIndex, timelineFrames.length, handleSelectTimeIndex]);
 
   // 山岳プリセット・お気に入り・検索地点切替 (View Transitions API 連動 + インスペクター自動表示)
   const handleSelectPreset = useCallback(
@@ -1423,22 +1477,21 @@ export const App: React.FC = () => {
           frames={timelineFrames}
           currentIndex={currentTimeIndex}
           onSelectIndex={handleSelectTimeIndex}
+          onPreviewIndex={handlePreviewTimeIndex}
           isPlaying={isPlaying}
           onTogglePlay={() => setIsPlaying((prev) => !prev)}
           playbackSpeed={playbackSpeed}
           onToggleSpeed={() => setPlaybackSpeed((prev) => (prev === 1 ? 2 : 1))}
           observedDateJST={rainLayerData?.formattedDateJST ?? ''}
+          displayedFrame={rainLayerData?.timelineFrame ?? null}
+          isWaiting={rainWaiting}
+          dataNotice={rainLayerData?.status === 'partial' ? '一部欠測' : catalogNotice}
           isLoading={isLoadingRain}
           cachedCount={cachedCount}
         />
       </div>
 
       {/* お気に入りのバックアップ・引き継ぎダイアログ */}
-      {(rainError || catalogNotice || rainLayerData?.status === 'partial') && <div role="status" className="fixed bottom-40 left-4 z-40 max-w-md rounded bg-slate-900 p-3 text-white text-xs">
-        <p>{rainError ?? (rainLayerData?.status === 'partial' ? '一部の領域が欠測しています。' : '')}</p>
-        <p>{catalogNotice}</p><p>表示時刻: {rainLayerData?.formattedDateJST ?? '未取得'}</p>
-        <button onClick={() => { refreshCatalog(); void handleSelectTimeIndex(currentTimeIndex); }}>再試行</button>
-      </div>}
       {favoritesWarning && <div role="alert" className="fixed bottom-24 left-4 right-4 z-50 rounded bg-slate-900 p-3 text-white">{favoritesWarning}<button className="ml-3 underline" onClick={async () => {
         try {
           const data = await readFavoritesRecoveryData();

@@ -29,6 +29,7 @@ export class FrameScheduler {
   private waiting: Array<{ foreground: boolean; signal?: AbortSignal; start: () => void }> = [];
   run<T>(foreground: boolean, work: () => Promise<T>, signal?: AbortSignal): Promise<T> {
     return new Promise((resolve, reject) => {
+      if (this.waiting.length >= 4) { reject(new DOMException('Frame queue full', 'AbortError')); return; }
       const abort = () => {
         this.waiting = this.waiting.filter(entry => entry !== item);
         reject(new DOMException('Aborted', 'AbortError'));

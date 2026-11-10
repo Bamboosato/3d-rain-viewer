@@ -210,10 +210,7 @@ it('R09 / ADD-06: actual SW cache.put failure must not discard a good network re
 it('R10 / ADD-07: empty time strings must not fabricate a current frame', async () => {
   vi.stubGlobal(
     'fetch',
-    vi.fn(async () => ({
-      ok: true,
-      json: async () => [{ basetime: '', validtime: '', elements: ['hrpns'] }],
-    }))
+    vi.fn(async () => Response.json([{ basetime: '', validtime: '', elements: ['hrpns'] }]))
   );
   const s = await import('../src/lib/jmaNowcastClient');
   await expect(s.fetchJMANowcastCatalog()).rejects.toThrow();

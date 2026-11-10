@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   fetchJMANowcastRainLayer,
   inspectJMAPrecipitation,
@@ -23,7 +23,9 @@ describe('Weather Regression Suite (T06-T11, T23-T26)', () => {
   beforeEach(() => {
     localStorage.clear();
     vi.restoreAllMocks();
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array([1]))));
   });
+  afterEach(() => vi.unstubAllGlobals());
 
   describe('T06: JMAの全20タイル失敗時の扱い (FIX-02)', () => {
     it('全20タイルが失敗した場合、正常結果とせず例外を投げる（降水なしにしない）', async () => {
@@ -94,10 +96,7 @@ describe('Weather Regression Suite (T06-T11, T23-T26)', () => {
   describe('T23, T24, T25: カタログ保存・更新・部分障害回復 (FIX-08)', () => {
     it('T25: カタログが空配列・不正JSONの場合、架空フレームを生成しない', async () => {
       const origFetch = global.fetch;
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => [],
-      } as any);
+      global.fetch = vi.fn(async () => Response.json([]));
 
       try {
         await expect(fetchJMANowcastCatalog()).rejects.toThrow(/unavailable|empty/);
@@ -110,16 +109,13 @@ describe('Weather Regression Suite (T06-T11, T23-T26)', () => {
       const origFetch = global.fetch;
       global.fetch = vi.fn().mockImplementation((url: string) => {
         if (url.includes('targetTimes_N1.json')) {
-          return Promise.resolve({
-            ok: true,
-            json: async () => [
+          return Promise.resolve(Response.json([
               {
                 basetime: '20261109060000',
                 validtime: '20261109060000',
                 elements: ['hrpns'],
               },
-            ],
-          });
+            ]));
         }
         // N2, rasrf は失敗
         return Promise.reject(new Error('Network error'));
@@ -140,18 +136,15 @@ describe('Weather Regression Suite (T06-T11, T23-T26)', () => {
       // 1. まずオンラインで取得・保存
       global.fetch = vi.fn().mockImplementation((url: string) => {
         if (url.includes('targetTimes_N1.json')) {
-          return Promise.resolve({
-            ok: true,
-            json: async () => [
+          return Promise.resolve(Response.json([
               {
                 basetime: '20261109060000',
                 validtime: '20261109060000',
                 elements: ['hrpns'],
               },
-            ],
-          });
+            ]));
         }
-        return Promise.resolve({ ok: true, json: async () => [] });
+        return Promise.resolve(Response.json([]));
       });
 
       const onlineCat = await fetchJMANowcastCatalog();

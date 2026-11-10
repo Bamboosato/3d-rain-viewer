@@ -140,6 +140,8 @@ export interface GSMaPRainLayerResult {
   missingTilesCount?: number;
   totalTilesCount?: number;
   key?: string;
+  /** Metadata of the frame actually displayed, independent of the slider thumb. */
+  timelineFrame?: import('../types/map').TimelineFrameItem;
 }
 
 /**
@@ -275,11 +277,15 @@ export async function fetchGSMaPRainLayer(
   updateActiveInspector = false,
   signal?: AbortSignal
 ): Promise<GSMaPRainLayerResult> {
+  signal?.throwIfAborted();
   const je = await getJaxaEarth();
+  signal?.throwIfAborted();
   const ic = await getGSMaPImageCollection();
+  signal?.throwIfAborted();
 
   const useDate = targetDate ?? ic.last();
   const img = await bounded(ic.getImage({ date: useDate, band: 'PRECIP' }), 10000, signal);
+  signal?.throwIfAborted();
 
   const dataObject = await bounded(img.getDataObject({
     bbox: JAPAN_RAIN_BBOX,
@@ -287,6 +293,7 @@ export async function fetchGSMaPRainLayer(
     height: 476,
     resampling: je.Resampling.BILINEAR,
   }), 15000, signal);
+  signal?.throwIfAborted();
 
   if (updateActiveInspector) {
     activeRainSourceType = 'jaxa-gsmap';

@@ -60,7 +60,7 @@ it('S05 ADD-01: backup restore must not silently shorten a legacy name', async (
 });
 
 it('S06 ADD-07: February 31 must not create a March observation', async () => {
-  vi.stubGlobal('fetch', vi.fn(async (url: string) => ({ ok: true, json: async () => url.includes('N1') ? [{ basetime: '20260231060000', validtime: '20260231060000', elements: ['hrpns'] }] : [] })));
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url.includes('N1') ? [{ basetime: '20260231060000', validtime: '20260231060000', elements: ['hrpns'] }] : [])));
   const s = await import('../../src/lib/jmaNowcastClient');
   await expect(s.fetchJMANowcastCatalog()).rejects.toThrow();
 });
