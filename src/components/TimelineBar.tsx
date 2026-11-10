@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Play,
   Pause,
@@ -14,11 +14,15 @@ interface TimelineBarProps {
   frames: TimelineFrameItem[];
   currentIndex: number;
   onSelectIndex: (index: number) => void;
+  onPreviewIndex?: (index: number) => void;
   isPlaying: boolean;
   onTogglePlay: () => void;
   playbackSpeed: 1 | 2;
   onToggleSpeed: () => void;
   observedDateJST: string;
+  displayedFrame?: TimelineFrameItem | null;
+  isWaiting?: boolean;
+  dataNotice?: string | null;
   isLoading: boolean;
   cachedCount?: number;
 }
@@ -40,20 +44,44 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
   frames,
   currentIndex,
   onSelectIndex,
+  onPreviewIndex,
   isPlaying,
   onTogglePlay,
   playbackSpeed,
   onToggleSpeed,
   observedDateJST,
+  displayedFrame,
+  isWaiting = false,
+  dataNotice,
   isLoading,
 }) => {
+  const [thumbIndex, setThumbIndex] = useState(currentIndex);
+  const pending = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const latest = useRef({ onSelectIndex, currentIndex }); latest.current = { onSelectIndex, currentIndex };
+  const clearPending = () => { clearTimeout(pending.current); pending.current = undefined; };
+  // An older parent's selection echo must not cancel a newer pending drag.
+  useEffect(() => { if (pending.current === undefined) setThumbIndex(currentIndex); }, [currentIndex]);
+  useEffect(() => { clearPending(); setThumbIndex(currentIndex); }, [rainSource, frames]);
+  useEffect(() => {
+    const hide = () => { if (document.visibilityState === 'hidden') { clearPending(); setThumbIndex(latest.current.currentIndex); } };
+    document.addEventListener('visibilitychange', hide);
+    return () => { clearPending(); document.removeEventListener('visibilitychange', hide); };
+  }, []);
+  const select = (index: number) => { clearPending(); setThumbIndex(index); onSelectIndex(index); };
+  const seek = (index: number) => {
+    clearPending(); setThumbIndex(index);
+    // Keep the thumb immediate, but skip frames merely passed during a drag.
+    pending.current = setTimeout(() => { pending.current = undefined; latest.current.onSelectIndex(index); }, 120);
+    onPreviewIndex?.(index);
+  };
   const maxIndex = Math.max(0, frames.length - 1);
-  const currentFrame = frames[currentIndex];
-  const isForecastFrame = Boolean(currentFrame?.isForecast);
-  const isLatestObsFrame = Boolean(currentFrame?.isLatestObservation);
+  const selectedFrame = frames[thumbIndex];
+  const isForecastFrame = Boolean(displayedFrame?.isForecast);
+  const isLatestObsFrame = Boolean(displayedFrame && !isForecastFrame && frames.some(f =>
+    f.isLatestObservation && f.date.getTime() === displayedFrame.date.getTime()));
 
   // 差分時間表示を廃止し、「過去」「現在」「予測」の固定2文字ラベルに統一
-  const fixedStateLabel: '過去' | '現在' | '予測' = isForecastFrame
+  const fixedStateLabel = !displayedFrame ? '未取得' : isForecastFrame
     ? '予測'
     : isLatestObsFrame
       ? '現在'
@@ -65,7 +93,7 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
       ? (latestObsIndex / maxIndex) * 100
       : null;
 
-  const compactDateJST = formatCompactDate(observedDateJST);
+  const compactDateJST = observedDateJST ? formatCompactDate(observedDateJST) : isLoading ? '取得中...' : '未取得';
 
   return (
     <section
@@ -98,7 +126,7 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
 
           <button
             type="button"
-            onClick={() => onSelectIndex(Math.max(0, currentIndex - 1))}
+            onClick={() => select(Math.max(0, thumbIndex - 1))}
             disabled={currentIndex <= 0}
             aria-label="前の時刻フレームへ戻る"
             className="inline-flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-slate-800/90 hover:bg-slate-700 disabled:opacity-40 text-slate-100 border border-slate-700/80 transition-colors cursor-pointer shrink-0"
@@ -108,7 +136,7 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
 
           <button
             type="button"
-            onClick={() => onSelectIndex(Math.min(maxIndex, currentIndex + 1))}
+            onClick={() => select(Math.min(maxIndex, thumbIndex + 1))}
             disabled={currentIndex >= maxIndex}
             aria-label="次の時刻フレームへ進む"
             className="inline-flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-slate-800/90 hover:bg-slate-700 disabled:opacity-40 text-slate-100 border border-slate-700/80 transition-colors cursor-pointer shrink-0"
@@ -133,7 +161,7 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
           id="timeline-timestamp-badge"
           onClick={() => {
             if (rainSource === 'jma-nowcast' && latestObsIndex >= 0) {
-              onSelectIndex(latestObsIndex);
+              select(latestObsIndex);
             }
           }}
           title={
@@ -190,8 +218,8 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
             min={0}
             max={maxIndex}
             step={1}
-            value={currentIndex}
-            onChange={(e) => onSelectIndex(parseInt(e.target.value, 10))}
+            value={thumbIndex}
+            onChange={(e) => seek(parseInt(e.target.value, 10))}
             className="relative z-10 w-full accent-sky-400 cursor-pointer h-2 bg-slate-700/90 rounded-lg"
           />
         </div>
@@ -204,6 +232,15 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
           {rainSource === 'jma-nowcast' ? '予測' : '現在'}
         </span>
       </div>
+      {(isLoading || isWaiting || thumbIndex !== currentIndex || dataNotice) && (
+        <div id="timeline-data-state" role="status" className="mt-1 text-[11px] text-slate-300">
+          {(isLoading || isWaiting || thumbIndex !== currentIndex) && <span>
+            {selectedFrame ? `選択 ${formatCompactDate(selectedFrame.labelJST)} · ` : ''}
+            {isLoading || thumbIndex !== currentIndex ? '取得中' : '更新待ち'}
+          </span>}
+          {dataNotice && <span className="ml-2">{dataNotice}</span>}
+        </div>
+      )}
     </section>
   );
 };

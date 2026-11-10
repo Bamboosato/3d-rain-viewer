@@ -2,6 +2,8 @@ import type { GSMaPRainLayerResult } from './jaxaClient';
 import type { TimelineFrameItem } from '../types/map';
 import type { DataState } from '../types/status';
 import { safeGetLocalStorage } from './favoritesStorage';
+import { requestWeather, readWeatherBytes, weatherDeadline, WeatherRequestError, WEATHER_FRAME_MS, WEATHER_TILE_BYTES } from './weatherRequests';
+import { diagnostic } from './diagnostics';
 
 export const JMA_NOWCAST_N1_URL =
   'https://www.jma.go.jp/bosai/jmatile/data/nowc/targetTimes_N1.json';
@@ -103,17 +105,15 @@ export function getJMAFrameKey(frame: TimelineFrameItem): string {
   return `jma:${frame.tileDataset || 'hrpns'}:${frame.basetime || ''}:${frame.validtime || ''}:v1`;
 }
 
-async function fetchJsonWithTimeout<T>(url: string, timeoutMs = 6000): Promise<T | null> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+async function fetchJsonWithTimeout<T>(url: string): Promise<T | null> {
   try {
-    const res = await fetch(url, { signal: controller.signal });
-    if (!res.ok) return null;
-    return (await res.json()) as T;
+    return await weatherDeadline(14000, undefined, signal => requestWeather(url, async (res, attemptSignal) => {
+      const bytes = await readWeatherBytes(res, attemptSignal, 1024 * 1024);
+      try { return JSON.parse(new TextDecoder().decode(bytes)) as T; }
+      catch { throw new WeatherRequestError('invalid-data'); }
+    }, signal));
   } catch {
     return null;
-  } finally {
-    clearTimeout(timer);
   }
 }
 
@@ -344,54 +344,27 @@ export function classifyJMAPixel(r: number, g: number, b: number): { mmh: number
   return JMA_PALETTE.get((r << 16) | (g << 8) | b) ?? null;
 }
 
-function loadTileImage(
-  url: string,
-  signal?: AbortSignal,
-  timeoutMs = 8000
-): Promise<HTMLImageElement | null> {
-  return new Promise((resolve) => {
-    if (signal?.aborted) {
-      resolve(null);
-      return;
-    }
-
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-
-    let timer: any = null;
-    const cleanup = () => {
-      if (timer) clearTimeout(timer);
-      img.onload = null;
-      img.onerror = null;
-      if (signal) signal.removeEventListener('abort', onAbort);
-    };
-
-    const onAbort = () => {
-      cleanup();
-      img.src = '';
-      resolve(null);
-    };
-
-    if (signal) {
-      signal.addEventListener('abort', onAbort);
-    }
-
-    timer = setTimeout(() => {
-      cleanup();
-      img.src = '';
-      resolve(null);
-    }, timeoutMs);
-
-    img.onload = () => {
-      cleanup();
-      resolve(img.naturalWidth === 256 && img.naturalHeight === 256 ? img : null);
-    };
-    img.onerror = () => {
-      cleanup();
-      resolve(null);
-    };
-    img.src = url;
-  });
+async function loadTileImage(url: string, signal: AbortSignal, onRetry: () => void): Promise<HTMLImageElement> {
+  return requestWeather(url, async (response, attemptSignal) => {
+    const bytes = await readWeatherBytes(response, attemptSignal, WEATHER_TILE_BYTES);
+    attemptSignal.throwIfAborted();
+    const objectUrl = URL.createObjectURL(new Blob([bytes], { type: 'image/png' }));
+    try {
+      return await new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image();
+        const cleanup = () => { img.onload = null; img.onerror = null; attemptSignal.removeEventListener('abort', abort); };
+        const abort = () => { cleanup(); img.src = ''; reject(attemptSignal.reason); };
+        img.onload = () => {
+          cleanup();
+          if (img.naturalWidth === 256 && img.naturalHeight === 256) resolve(img);
+          else reject(new WeatherRequestError('decode'));
+        };
+        img.onerror = () => { cleanup(); reject(new WeatherRequestError('decode')); };
+        if (attemptSignal.aborted) { abort(); return; }
+        attemptSignal.addEventListener('abort', abort, { once: true }); img.src = objectUrl;
+      });
+    } finally { URL.revokeObjectURL(objectUrl); }
+  }, signal, onRetry);
 }
 
 /**
@@ -401,6 +374,13 @@ function loadTileImage(
 export async function fetchJMANowcastRainLayer(
   frame: TimelineFrameItem,
   signal?: AbortSignal
+): Promise<GSMaPRainLayerResult> {
+  return weatherDeadline(WEATHER_FRAME_MS, signal, activeSignal => loadRainLayer(frame, activeSignal));
+}
+
+async function loadRainLayer(
+  frame: TimelineFrameItem,
+  signal: AbortSignal
 ): Promise<GSMaPRainLayerResult> {
   if (signal?.aborted) {
     throw new Error('Aborted');
@@ -414,10 +394,13 @@ export async function fetchJMANowcastRainLayer(
     throw new Error('Canvas 2D context not available');
   }
 
+  try {
   const isRasrf = frame.tileDataset === 'rasrf';
-  const tileTasks: Array<
-    Promise<{ gx: number; gy: number; img: HTMLImageElement | null }>
-  > = [];
+  const positions: Array<{ gx: number; gy: number; url: string }> = [];
+  const loadedTiles: Array<{ gx: number; gy: number; img: HTMLImageElement | null }> = [];
+  let unavailable: WeatherRequestError | undefined;
+  let lastError: WeatherRequestError | undefined;
+  let retries = 0;
 
   for (let ty = JMA_Y_MIN; ty <= JMA_Y_MAX; ty++) {
     for (let tx = JMA_X_MIN; tx <= JMA_X_MAX; tx++) {
@@ -426,14 +409,32 @@ export async function fetchJMANowcastRainLayer(
       const url = isRasrf
         ? `https://www.jma.go.jp/bosai/jmatile/data/rasrf/${frame.basetime}/none/${frame.validtime}/surf/rasrf/${JMA_TILE_Z}/${tx}/${ty}.png`
         : `https://www.jma.go.jp/bosai/jmatile/data/nowc/${frame.basetime}/none/${frame.validtime}/surf/hrpns/${JMA_TILE_Z}/${tx}/${ty}.png`;
-      tileTasks.push(loadTileImage(url, signal).then((img) => ({ gx, gy, img })));
+      positions.push({ gx, gy, url });
     }
   }
 
-  const loadedTiles = await Promise.all(tileTasks);
+  let cursor = 0;
+  // Four tiles per frame, at most two frames in the scheduler. Successful tiles
+  // remain in this bounded frame while only individual failed tiles retry.
+  await Promise.all(Array.from({ length: 4 }, async () => {
+    while (cursor < positions.length) {
+      signal.throwIfAborted();
+      const { gx, gy, url } = positions[cursor++];
+      let img: HTMLImageElement | null = null;
+      try { img = await loadTileImage(url, signal, () => { retries++; }); }
+      catch (error) {
+        signal.throwIfAborted();
+        if (error instanceof WeatherRequestError) lastError = error;
+        if (error instanceof WeatherRequestError && error.refreshCatalog) unavailable = error;
+      }
+      loadedTiles.push({ gx, gy, img });
+    }
+  }));
   if (signal?.aborted) {
     throw new Error('Aborted');
   }
+  diagnostic({ operation: 'frame', backend: 'network', outcome: lastError ? 'failure' : 'success',
+    count: loadedTiles.filter(t => !!t.img).length, retry: retries, error: lastError?.kind });
 
   let successCount = 0;
   let missingCount = 0;
@@ -449,7 +450,10 @@ export async function fetchJMANowcastRainLayer(
 
   // 全20タイル失敗の場合はエラーとして扱い、正常フレームにしない (FIX-02)
   if (successCount === 0) {
-    throw new Error(`JMA nowcast: All ${JMA_TOTAL_TILES} tiles failed to load`);
+    if (unavailable) throw unavailable;
+    const error = lastError ?? new WeatherRequestError('invalid-data');
+    error.message = `JMA nowcast: All ${JMA_TOTAL_TILES} tiles failed to load`;
+    throw error;
   }
 
   const jmaGrid = new Uint16Array(JMA_CANVAS_WIDTH * JMA_CANVAS_HEIGHT);
@@ -530,6 +534,7 @@ export async function fetchJMANowcastRainLayer(
     totalTilesCount: JMA_TOTAL_TILES,
     key,
   };
+  } finally { canvas.width = 0; canvas.height = 0; }
 }
 
 /**

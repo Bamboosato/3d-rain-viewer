@@ -30,7 +30,7 @@ test.beforeEach(async({page,request,context})=>{
   if(url.hostname==='nominatim.openstreetmap.org'){await route.fulfill({json:{display_name:'Fixture',address:{}}});return;}
   if(['overpass-api.de','overpass.kumi.systems'].includes(url.hostname)){await route.fulfill({json:{elements:[]}});return;}
   if(url.hostname==='www.jma.go.jp'){
-   const response=await request.get('/__fixture/'+url.pathname.split('/').pop());await route.fulfill({response});return;
+   const response=await request.get('/__fixture/'+url.pathname.split('/').pop()+'?upstream='+encodeURIComponent(url.pathname));await route.fulfill({response});return;
   }
   await route.abort();
  });
@@ -41,6 +41,90 @@ test.afterEach(async({page,request},info)=>{
   await info.attach('sw-state',{body:JSON.stringify({browser,server:await (await request.get('/__test/state')).json()},null,2),contentType:'application/json'});
  }
 });
+// Forecast perspectives: real SW + successful PNG decode, transient/permanent
+// failure, catalog rollover, latest-only interaction and retained offline cache.
+async function tenHours(page:Page){
+ const slider=page.getByRole('slider',{name:'観測・予測時刻シークバー'});
+ await slider.press('End');await slider.press('ArrowLeft');
+}
+function forecastCount(state:any){return Object.entries(state.forecastRequests).filter(([url])=>url.includes('/none/20261109160000/')).reduce((n,[,count])=>n+Number(count),0);}
+test('FORECAST transient 10h failure recovers automatically and existing cache survives offline reload',async({page,request,context},info)=>{
+ await request.get('/__test/config?forecast=retry');await page.goto(point);await controlled(page);await page.reload();
+ await expect(page.locator('#timeline-status-pill')).toHaveText('現在');
+ await page.evaluate(async()=>{await(await caches.open('foreign-keep')).put('/keep',new Response('keep'));});
+ // Functional recovery uses the product's 18-second whole-frame deadline;
+ // the request-count assertions below enforce the I/O budget independently.
+ await tenHours(page);await expect(page.locator('#timeline-timestamp-badge')).toContainText('11/10 01:00',{timeout:19000});
+ await expect(page.locator('#timeline-status-pill')).toHaveText('予測');
+ const first=await(await request.get('/__test/state')).json();expect(forecastCount(first)).toBe(40);
+ await page.getByRole('slider').press('Home');await expect(page.locator('#timeline-status-pill')).toHaveText('現在');
+ await tenHours(page);await expect(page.locator('#timeline-timestamp-badge')).toContainText('11/10 01:00');
+ expect(forecastCount(await(await request.get('/__test/state')).json())).toBe(40);
+ await page.waitForFunction(async()=>{const c=await caches.open('rain3d-runtime-v13');return(await c.keys()).filter(r=>r.url.includes('/none/20261109160000/')).length===20;});
+ // Force the next navigation to start from the observation while preserving caches.
+ await page.goto(point);await expect(page.locator('#timeline-status-pill')).toHaveText('現在');
+ await context.setOffline(true);
+ try{
+  await page.reload();await expect(page.locator('#timeline-status-pill')).toHaveText('現在');
+  await tenHours(page);await expect(page.locator('#timeline-timestamp-badge')).toContainText('11/10 01:00');
+  await expect(page.locator('#inspector-rain-value')).toContainText('0.0');
+  expect(await page.evaluate(async()=>await(await(await caches.open('foreign-keep')).match('/keep'))?.text())).toBe('keep');
+ }finally{await context.setOffline(false);}
+ await expect(page.getByText(/選択時刻の取得に失敗|雨雲データを取得できません/)).toHaveCount(0);
+ await info.attach('forecast-cache-counts',{body:JSON.stringify({first,after:await(await request.get('/__test/state')).json()}),contentType:'application/json'});
+});
+test('FORECAST persistent failure stays quiet and keeps actual observation time and values',async({page,request})=>{
+ await request.get('/__test/config?forecast=unavailable');await page.goto(point);await controlled(page);
+ await expect(page.locator('#timeline-status-pill')).toHaveText('現在');await tenHours(page);
+ await expect(page.locator('#timeline-data-state')).toContainText('更新待ち',{timeout:15000});
+ await expect(page.locator('#timeline-timestamp-badge')).toContainText('11/09 15:00');
+ await expect(page.locator('#timeline-status-pill')).toHaveText('現在');
+ await expect(page.locator('#inspector-rain-value')).toContainText('0.0');
+ await expect(page.getByText(/選択時刻の取得に失敗|雨雲データを取得できません|再試行してください/)).toHaveCount(0);
+ expect(forecastCount(await(await request.get('/__test/state')).json())).toBe(60);
+});
+test('FORECAST observation nowcast and 6h 7h 10h 15h boundaries show the actual frame',async({page,request})=>{
+ await request.get('/__test/config?forecast=healthy');await page.goto(point);await controlled(page);
+ await expect(page.locator('#timeline-status-pill')).toHaveText('現在');
+ for(const time of ['11/09 15:10','11/09 16:00','11/09 21:00','11/09 22:00','11/10 01:00','11/10 06:00']){
+  await page.getByRole('slider').press('ArrowRight');
+  await expect(page.locator('#timeline-timestamp-badge')).toContainText(time);
+  await expect(page.locator('#timeline-status-pill')).toHaveText('予測');
+ }
+});
+test('FORECAST missing old generation refreshes catalog once and displays the same selected valid time',async({page,request})=>{
+ await request.get('/__test/config?forecast=refresh');await page.goto(point);await controlled(page);
+ await expect(page.locator('#timeline-status-pill')).toHaveText('現在');
+ const before=await(await request.get('/__test/state')).json();
+ await tenHours(page);await expect(page.locator('#timeline-timestamp-badge')).toContainText('11/10 01:00',{timeout:19000});
+ const after=await(await request.get('/__test/state')).json();
+ expect(after.catalogRequests['targetTimes.json']-before.catalogRequests['targetTimes.json']).toBe(1);
+ expect(forecastCount(after)).toBe(40);await expect(page.locator('#timeline-status-pill')).toHaveText('予測');
+});
+test('FORECAST burst coalesces and cancelled old frame cannot overwrite a later selection',async({page,request})=>{
+ await request.get('/__test/config?forecast=delay');await page.goto(point);await controlled(page);
+ await expect(page.locator('#timeline-status-pill')).toHaveText('現在');
+ const slider=page.getByRole('slider');
+ // Send a deterministic sub-120ms burst through the real React input handler.
+ // Separate Playwright key commands can exceed the debounce window under load.
+ await page.evaluate(()=>{
+  const slider=document.querySelector<HTMLInputElement>('#timeline-seek-slider')!;
+  const setValue=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!;
+  for(const index of [6,5,0]){setValue.call(slider,String(index));slider.dispatchEvent(new Event('input',{bubbles:true}));}
+ });
+ await expect(slider).toHaveValue('0');
+ await expect(page.locator('#timeline-data-state')).toBeHidden();
+ expect(forecastCount(await(await request.get('/__test/state')).json())).toBe(0);
+ await tenHours(page);
+ await expect.poll(async()=>forecastCount(await(await request.get('/__test/state')).json())).toBeGreaterThan(0);
+ await slider.press('End');await expect(page.locator('#timeline-timestamp-badge')).toContainText('11/10 06:00');
+ // Release the obsolete responses only after the newer frame is displayed.
+ await request.get('/__test/release-forecast');
+ await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))));
+ await expect(page.locator('#timeline-timestamp-badge')).toContainText('11/10 06:00');
+ expect(forecastCount(await(await request.get('/__test/state')).json())).toBeLessThanOrEqual(4);
+});
+
 test('T16/19 UI save and delete-all survive real page reload',async({page})=>{
  await page.goto(point);await controlled(page);await save(page,'Saved fixture');
  await page.reload();await expect(page.locator('#inspector-fav-edit-btn')).toBeVisible();
