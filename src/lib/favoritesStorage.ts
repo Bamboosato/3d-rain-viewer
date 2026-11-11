@@ -1,6 +1,7 @@
 import { diagnostic } from './diagnostics';
 import type { PresetLocation } from '../types/map';
 import type { ErrorKind } from '../types/status';
+import { isFavoriteCategory } from './favoriteCategories';
 
 export const FAVORITE_AREA_GROUP = '⭐ お気に入り地点';
 export const MAX_FAVORITES_COUNT = 100;
@@ -62,6 +63,7 @@ export function isValidFavoriteLocation(item: unknown): item is PresetLocation {
   if (loc.name.length > MAX_NAME_LENGTH || /[\u0000-\u001f\u007f]/.test(loc.name)) return false;
   for (const date of [loc.createdAt, loc.updatedAt]) if (date !== undefined && (typeof date !== 'string' || !Number.isFinite(Date.parse(date)))) return false;
   if (loc.isPinned !== undefined && typeof loc.isPinned !== 'boolean') return false;
+  if (loc.category !== undefined && !isFavoriteCategory(loc.category)) return false;
   if (loc.elevation !== undefined && !Number.isFinite(loc.elevation)) return false;
 
   if (!Array.isArray(loc.center) || loc.center.length !== 2) return false;
@@ -103,7 +105,10 @@ export function filterAndValidateFavorites(items: unknown[]): {
   for (const item of items) {
     if (isValidFavoriteLocation(item)) {
       if (valid.length < MAX_FAVORITES_COUNT) {
-        valid.push(item);
+        valid.push({
+          ...item,
+          category: isFavoriteCategory(item.category) ? item.category : 'other',
+        });
       } else {
         rejectedCount++;
       }
@@ -135,7 +140,11 @@ function warn(message: string, blocked = false) {
   storageBlocked ||= blocked;
 }
 function cloneLocations(items: PresetLocation[]): PresetLocation[] {
-  return items.map(item => ({ ...item, center: [...item.center] as [number, number] }));
+  return items.map(item => ({
+    ...item,
+    center: [...item.center] as [number, number],
+    category: isFavoriteCategory(item.category) ? item.category : 'other',
+  }));
 }
 function compatibleItems(value: unknown): PresetLocation[] | null {
   if (!Array.isArray(value)) return null;

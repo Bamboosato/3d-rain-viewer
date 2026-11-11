@@ -82,6 +82,7 @@ import {
 import { runViewTransition } from './lib/viewTransition';
 import type {
   BaseMapId,
+  FavoriteCategory,
   InspectorPoint,
   PresetLocation,
   RainSourceId,
@@ -952,7 +953,7 @@ export const App: React.FC = () => {
 
   // お気に入り地点の登録・更新（直列化・最新世代保護・ADD-01, ADD-02, ADD-03）
   const handleSaveFavorite = useCallback(
-    async (customName: string): Promise<StorageOperationResult> => {
+    async (customName: string, category: FavoriteCategory = 'nature'): Promise<StorageOperationResult> => {
       if (!inspectedPoint) {
         return { success: false, error: 'invalid-data', message: '地点が選択されていません。' };
       }
@@ -985,6 +986,8 @@ export const App: React.FC = () => {
         elevation: inspectedPoint.elevation ?? 0,
         createdAt: matchedFavorite?.createdAt ?? nowIso,
         updatedAt: nowIso,
+        category,
+        isPinned: matchedFavorite?.isPinned,
       });
 
       return runSerializedFavoritesOp<StorageOperationResult>(async (current) => {
@@ -1011,7 +1014,7 @@ export const App: React.FC = () => {
             next, result: saveRes,
             updateSelection: () => {
               setActivePreset(newFav);
-              setInspectedPoint((prev) => (prev ? { ...prev, label: `⭐ ${trimmed}` } : null));
+              setInspectedPoint((prev) => (prev ? { ...prev, label: `${newFav.emoji} ${trimmed}` } : null));
             },
           };
         } else {

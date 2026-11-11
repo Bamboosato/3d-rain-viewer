@@ -1,3 +1,6 @@
+import type { FavoriteCategory } from '../lib/favoriteCategories';
+export type { FavoriteCategory };
+
 export type RendererBackend = 'webgpu' | 'webgl2' | 'webgl';
 
 export type BaseMapId = 'osm' | 'hillshade' | 'photo';
@@ -38,6 +41,8 @@ export interface PresetLocation {
   updatedAt?: string;
   /** お気に入りリスト上位ピン留めフラグ */
   isPinned?: boolean;
+  /** お気に入りカテゴリ（'nature' | 'tourism' | 'lifestyle' | 'other'） */
+  category?: FavoriteCategory;
 }
 
 export interface InspectorPoint {

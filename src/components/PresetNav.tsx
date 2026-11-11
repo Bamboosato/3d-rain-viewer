@@ -18,6 +18,11 @@ import {
 import type { PresetLocation } from '../types/map';
 import { AREA_GROUPS } from '../lib/hyakumeizanData';
 import {
+  FAVORITE_CATEGORY_LIST,
+  getFavoriteCategoryMeta,
+  type FavoriteCategory,
+} from '../lib/favoriteCategories';
+import {
   calcDistanceMeters,
   formatDistanceLabel,
   searchOsmLocationsByKeyword,
@@ -187,6 +192,25 @@ export const PresetNav: React.FC<PresetNavProps> = ({
 
     return list;
   }, [favorites, effectiveRefLocation, favoritesSortOrder]);
+
+  // お気に入りのカテゴリ絞り込み状態（初期値: 'ALL'）
+  const [selectedFavCategory, setSelectedFavCategory] = useState<'ALL' | FavoriteCategory>('ALL');
+
+  // カテゴリ別のお気に入り件数集計
+  const favCategoryCounts = useMemo(() => {
+    const counts: Record<string, number> = { ALL: favorites.length, nature: 0, tourism: 0, lifestyle: 0, other: 0 };
+    for (const fav of favorites) {
+      const cat = fav.category ?? 'other';
+      counts[cat] = (counts[cat] ?? 0) + 1;
+    }
+    return counts;
+  }, [favorites]);
+
+  // 選択されたカテゴリでフィルタしたお気に入り一覧
+  const filteredFavorites = useMemo(() => {
+    if (selectedFavCategory === 'ALL') return sortedFavorites;
+    return sortedFavorites.filter(({ preset }) => (preset.category ?? 'other') === selectedFavCategory);
+  }, [sortedFavorites, selectedFavCategory]);
 
   // 非同期検索完了時にDOM再構築とブラウザの再描画（リフロー）を即時確定させるヘルパー
   const commitSearchUiUpdate = useCallback((updater: () => void) => {
@@ -570,7 +594,7 @@ export const PresetNav: React.FC<PresetNavProps> = ({
 
           {/* === タブ2: ⭐ お気に入り（検索枠なし・シンプル一覧） === */}
           {activeTab === 'favorites' && (
-            <div className="space-y-1.5 min-h-[17.5rem] flex flex-col">
+            <div className="space-y-2 min-h-[17.5rem] flex flex-col">
               <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs text-slate-300 font-semibold px-0.5">
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="truncate">お気に入り ({favorites.length}件)</span>
@@ -630,15 +654,62 @@ export const PresetNav: React.FC<PresetNavProps> = ({
                 )}
               </div>
 
+              {/* カテゴリ絞り込みタブ: すべて / 自然 / 観光 / 生活 / その他 */}
+              <div
+                role="tablist"
+                aria-label="カテゴリで絞り込み"
+                className="flex items-center gap-1 overflow-x-auto pb-0.5 scrollbar-none text-[11px]"
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={selectedFavCategory === 'ALL'}
+                  onClick={() => setSelectedFavCategory('ALL')}
+                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-bold transition-colors cursor-pointer shrink-0 ${
+                    selectedFavCategory === 'ALL'
+                      ? 'bg-sky-500 text-white shadow-sm'
+                      : 'bg-slate-950/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800 border border-slate-800'
+                  }`}
+                >
+                  <span>すべて</span>
+                  <span className="text-[10px] opacity-80">({favCategoryCounts.ALL})</span>
+                </button>
+                {FAVORITE_CATEGORY_LIST.map((cat) => {
+                  const isSelected = selectedFavCategory === cat.id;
+                  const Icon = cat.icon;
+                  const count = favCategoryCounts[cat.id] ?? 0;
+                  return (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={isSelected}
+                      onClick={() => setSelectedFavCategory(cat.id)}
+                      className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg font-bold transition-colors cursor-pointer shrink-0 ${
+                        isSelected
+                          ? `${cat.colorClass} shadow-sm border ${cat.borderColor}`
+                          : 'bg-slate-950/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800 border border-slate-800'
+                      }`}
+                    >
+                      <Icon className="w-3 h-3 shrink-0" />
+                      <span>{cat.label}</span>
+                      <span className="text-[10px] opacity-80">({count})</span>
+                    </button>
+                  );
+                })}
+              </div>
+
               <div
                 id="preset-favorite-list"
                 role="group"
                 aria-label="お気に入り地点リスト"
                 className="grid grid-cols-1 gap-2 max-h-64 overflow-y-auto pr-1 flex-1"
               >
-                {sortedFavorites.map(({ preset, distanceMeters }) => {
+                {filteredFavorites.map(({ preset, distanceMeters }) => {
                   const isPinned = Boolean(preset.isPinned);
                   const distLabel = distanceMeters !== undefined ? formatDistanceLabel(distanceMeters) : '';
+                  const catMeta = getFavoriteCategoryMeta(preset.category);
+                  const CatIcon = catMeta.icon;
                   return (
                     <div
                       key={preset.id}
@@ -654,21 +725,30 @@ export const PresetNav: React.FC<PresetNavProps> = ({
                           setInternalIsOpen(false);
                           onSelectPreset(preset);
                         }}
-                        className="flex-1 flex flex-col items-start justify-center px-3 py-2 text-left cursor-pointer select-none min-w-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 rounded-xl"
+                        className="flex-1 flex items-center gap-2.5 px-3 py-2 text-left cursor-pointer select-none min-w-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 rounded-xl"
                       >
-                        <div className="flex items-center gap-1.5 w-full min-w-0">
-                          {isPinned ? (
-                            <Pin className="w-3.5 h-3.5 text-amber-400 fill-amber-400 shrink-0" aria-label="ピン留め" />
-                          ) : (
-                            <span className="text-sm leading-none shrink-0">{preset.emoji}</span>
-                          )}
-                          <span className="text-sm sm:text-xs font-semibold truncate">
-                            {preset.name}
-                          </span>
+                        {/* カテゴリ専用アイコンバッジ */}
+                        <div
+                          className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${catMeta.colorClass} shadow-sm border border-white/20`}
+                          title={`カテゴリ: ${catMeta.label}`}
+                          aria-label={`カテゴリ: ${catMeta.label}`}
+                        >
+                          <CatIcon className="w-3.5 h-3.5 text-white" />
                         </div>
-                        <div className="text-xs sm:text-[10px] font-mono truncate w-full mt-0.5 text-slate-400">
-                          {favoritesSortOrder === 'distance' && distLabel ? `📍 ${distLabel} · ` : ''}
-                          ズーム{preset.zoom.toFixed(1)} · 傾き{Math.round(preset.pitch)}°
+
+                        <div className="flex-1 flex flex-col items-start justify-center min-w-0">
+                          <div className="flex items-center gap-1.5 w-full min-w-0">
+                            {isPinned && (
+                              <Pin className="w-3.5 h-3.5 text-amber-400 fill-amber-400 shrink-0" aria-label="ピン留め" />
+                            )}
+                            <span className="text-sm sm:text-xs font-semibold truncate">
+                              {preset.name}
+                            </span>
+                          </div>
+                          <div className="text-xs sm:text-[10px] font-mono truncate w-full mt-0.5 text-slate-400">
+                            {favoritesSortOrder === 'distance' && distLabel ? `📍 ${distLabel} · ` : ''}
+                            ズーム{preset.zoom.toFixed(1)} · 傾き{Math.round(preset.pitch)}°
+                          </div>
                         </div>
                       </button>
 
@@ -746,6 +826,12 @@ export const PresetNav: React.FC<PresetNavProps> = ({
                         別の端末のお気に入りやバックアップは「バックアップ・引き継ぎ」から取り込めます。
                       </span>
                     )}
+                  </div>
+                )}
+
+                {favorites.length > 0 && filteredFavorites.length === 0 && (
+                  <div className="col-span-full py-6 px-3 text-center text-xs text-slate-400 bg-slate-950/60 rounded-xl border border-slate-800/80">
+                    「{getFavoriteCategoryMeta(selectedFavCategory).label}」カテゴリのお気に入りは登録されていません。
                   </div>
                 )}
               </div>
