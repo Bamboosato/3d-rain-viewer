@@ -424,9 +424,7 @@ export const PresetNav: React.FC<PresetNavProps> = ({
       >
         <Compass className="w-4 h-4 text-sky-400 shrink-0" />
         <span className="hidden md:inline shrink-0">地点切替・検索</span>
-        <span className="px-2 py-0.5 rounded-lg bg-slate-800/90 border border-slate-700 text-xs font-semibold text-sky-200 max-w-[6.5rem] sm:max-w-[12rem] truncate">
-          {activePreset.emoji} {activePreset.name}
-        </span>
+        <span className="md:hidden shrink-0">地名検索</span>
         <ChevronUp
           className={`w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-400 transition-transform duration-200 shrink-0 ${
             isOpen ? 'rotate-0' : 'rotate-180'
@@ -439,7 +437,7 @@ export const PresetNav: React.FC<PresetNavProps> = ({
         <div
           ref={panelRef}
           id="preset-nav-panel"
-          className="safe-top-dropdown fixed z-30 rounded-2xl bg-slate-900/[0.98] border border-slate-700/80 shadow-2xl p-3.5 text-slate-100 w-[calc(100vw-1.5rem)] sm:w-[26rem] max-w-md space-y-3 overflow-y-auto"
+          className="safe-top-dropdown fixed z-30 rounded-2xl bg-slate-900/[0.98] border border-slate-700/80 shadow-2xl p-3.5 text-slate-100 w-[calc(100vw-1.5rem)] sm:w-[26rem] max-w-md space-y-3 overflow-y-auto min-h-[22rem]"
         >
           {/* 3タブ切替: 🏔️ 百名山 / ⭐ お気に入り / 🔍 検索 */}
           <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-slate-950/85 border border-slate-800">
@@ -488,7 +486,7 @@ export const PresetNav: React.FC<PresetNavProps> = ({
 
           {/* === タブ1: 🏔️ 日本百名山（検索枠なし・地域＆都道府県セレクトのみ） === */}
           {activeTab === 'hyakumeizan' && (
-            <div className="space-y-2.5">
+            <div className="space-y-2.5 min-h-[17.5rem] flex flex-col">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <label className="flex flex-col gap-1 text-xs text-slate-300 font-semibold">
                   <span className="inline-flex items-center gap-1 px-0.5 truncate">
@@ -533,70 +531,38 @@ export const PresetNav: React.FC<PresetNavProps> = ({
                 </label>
               </div>
 
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 flex-1 flex flex-col min-h-0">
                 <div className="flex items-center justify-between text-xs text-slate-300 font-semibold px-0.5">
                   <span>山岳を選択 ({filteredMountains.length}座)</span>
-                  {activePreset.areaGroup &&
-                    !activePreset.isFavorite &&
-                    selectedArea !== activePreset.areaGroup && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedArea(activePreset.areaGroup ?? 'ALL');
-                          setSelectedPrefecture('ALL');
-                        }}
-                        className="text-sky-400 hover:text-sky-300 underline cursor-pointer truncate"
-                      >
-                        選択中の「{activePreset.name}」を表示
-                      </button>
-                    )}
                 </div>
 
                 <div
                   id="preset-mountain-list"
                   role="group"
                   aria-label="百名山リスト"
-                  className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-56 overflow-y-auto pr-1"
+                  className="grid grid-cols-2 gap-2 max-h-56 overflow-y-auto pr-1 flex-1"
                 >
-                  {filteredMountains.map((preset) => {
-                    const isSelected = preset.id === activePreset.id;
-                    return (
-                      <button
-                        key={preset.id}
-                        type="button"
-                        onClick={() => {
-                          setInternalIsOpen(false);
-                          onSelectPreset(preset);
-                        }}
-                        aria-pressed={isSelected}
-                        className={`relative flex flex-col items-start justify-center px-3 py-2 rounded-xl text-left transition-colors cursor-pointer select-none min-w-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 ${
-                          isSelected
-                            ? 'text-white font-bold shadow-md'
-                            : 'text-slate-100 hover:text-white hover:bg-slate-800/80 bg-slate-800/50 border border-slate-700/80'
-                        }`}
-                      >
-                        {isSelected && (
-                          <span
-                            className="vt-active-pill absolute inset-0 rounded-xl bg-gradient-to-r from-sky-500/90 to-blue-600/90 border border-sky-300/40 -z-10"
-                            aria-hidden="true"
-                          />
-                        )}
-                        <div className="flex items-center gap-1.5 w-full min-w-0">
-                          <span className="text-sm leading-none shrink-0">{preset.emoji}</span>
-                          <span className="text-sm sm:text-xs font-semibold truncate">
-                            {preset.name}
-                          </span>
-                        </div>
-                        <div
-                          className={`text-xs sm:text-[10px] font-mono truncate w-full mt-0.5 ${
-                            isSelected ? 'text-sky-100' : 'text-slate-400'
-                          }`}
-                        >
-                          {preset.elevation.toLocaleString()}m · {preset.region}
-                        </div>
-                      </button>
-                    );
-                  })}
+                  {filteredMountains.map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => {
+                        setInternalIsOpen(false);
+                        onSelectPreset(preset);
+                      }}
+                      className="relative flex flex-col items-start justify-center px-3 py-2 rounded-xl text-left transition-colors cursor-pointer select-none min-w-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 text-slate-100 hover:text-white bg-slate-800/50 hover:bg-slate-800 border border-slate-700/80 hover:border-sky-400/60"
+                    >
+                      <div className="flex items-center gap-1.5 w-full min-w-0">
+                        <span className="text-sm leading-none shrink-0">{preset.emoji}</span>
+                        <span className="text-sm sm:text-xs font-semibold truncate">
+                          {preset.name}
+                        </span>
+                      </div>
+                      <div className="text-xs sm:text-[10px] font-mono truncate w-full mt-0.5 text-slate-400">
+                        {preset.elevation.toLocaleString()}m · {preset.region}
+                      </div>
+                    </button>
+                  ))}
                 </div>
               </div>
             </div>
@@ -604,7 +570,7 @@ export const PresetNav: React.FC<PresetNavProps> = ({
 
           {/* === タブ2: ⭐ お気に入り（検索枠なし・シンプル一覧） === */}
           {activeTab === 'favorites' && (
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 min-h-[17.5rem] flex flex-col">
               <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs text-slate-300 font-semibold px-0.5">
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="truncate">お気に入り ({favorites.length}件)</span>
@@ -668,36 +634,26 @@ export const PresetNav: React.FC<PresetNavProps> = ({
                 id="preset-favorite-list"
                 role="group"
                 aria-label="お気に入り地点リスト"
-                className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-64 overflow-y-auto pr-1"
+                className="grid grid-cols-1 gap-2 max-h-64 overflow-y-auto pr-1 flex-1"
               >
                 {sortedFavorites.map(({ preset, distanceMeters }) => {
-                  const isSelected = preset.id === activePreset.id;
                   const isPinned = Boolean(preset.isPinned);
                   const distLabel = distanceMeters !== undefined ? formatDistanceLabel(distanceMeters) : '';
                   return (
                     <div
                       key={preset.id}
-                      className={`relative flex items-center justify-between gap-1 rounded-xl transition-colors ${
-                        isSelected
-                          ? 'text-white font-bold shadow-md'
-                          : isPinned
-                            ? 'text-slate-100 hover:text-white hover:bg-slate-800/90 bg-slate-800/70 border border-amber-500/40'
-                            : 'text-slate-100 hover:text-white hover:bg-slate-800/80 bg-slate-800/50 border border-slate-700/80'
+                      className={`relative flex items-center justify-between gap-1 rounded-xl transition-colors text-slate-100 hover:text-white hover:bg-slate-800 hover:border-sky-400/60 ${
+                        isPinned
+                          ? 'bg-slate-800/70 border border-amber-500/40'
+                          : 'bg-slate-800/50 border border-slate-700/80'
                       }`}
                     >
-                      {isSelected && (
-                        <span
-                          className="vt-active-pill absolute inset-0 rounded-xl bg-gradient-to-r from-sky-500/90 to-blue-600/90 border border-sky-300/40 -z-10"
-                          aria-hidden="true"
-                        />
-                      )}
                       <button
                         type="button"
                         onClick={() => {
                           setInternalIsOpen(false);
                           onSelectPreset(preset);
                         }}
-                        aria-pressed={isSelected}
                         className="flex-1 flex flex-col items-start justify-center px-3 py-2 text-left cursor-pointer select-none min-w-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 rounded-xl"
                       >
                         <div className="flex items-center gap-1.5 w-full min-w-0">
@@ -710,11 +666,7 @@ export const PresetNav: React.FC<PresetNavProps> = ({
                             {preset.name}
                           </span>
                         </div>
-                        <div
-                          className={`text-xs sm:text-[10px] font-mono truncate w-full mt-0.5 ${
-                            isSelected ? 'text-sky-100' : 'text-slate-400'
-                          }`}
-                        >
+                        <div className="text-xs sm:text-[10px] font-mono truncate w-full mt-0.5 text-slate-400">
                           {favoritesSortOrder === 'distance' && distLabel ? `📍 ${distLabel} · ` : ''}
                           ズーム{preset.zoom.toFixed(1)} · 傾き{Math.round(preset.pitch)}°
                         </div>
@@ -802,7 +754,7 @@ export const PresetNav: React.FC<PresetNavProps> = ({
 
           {/* === タブ3: 🔍 地名・施設検索（文字入力 ➔ 検索ボタン押下で検索） === */}
           {activeTab === 'search' && (
-            <div className="space-y-2.5">
+            <div className="space-y-2.5 min-h-[17.5rem] flex flex-col">
               <form onSubmit={handleSearchFormSubmit} className="flex items-center gap-1.5">
                 <div className="relative flex items-center flex-1 min-w-0">
                   <Search className="w-4 h-4 text-emerald-400 absolute left-3 pointer-events-none" />
@@ -863,7 +815,7 @@ export const PresetNav: React.FC<PresetNavProps> = ({
 
               <div
                 key={`search-results-${submittedQuery}-${isSearchingOsm ? 'loading' : 'done'}-${osmResults.length}-${searchRenderVersion}`}
-                className="max-h-64 overflow-y-auto space-y-2.5 pr-1"
+                className="max-h-64 overflow-y-auto space-y-2.5 pr-1 flex-1"
               >
                 {!submittedQuery && !isSearchingOsm && (
                   <div className="py-6 px-3 text-center text-xs text-slate-400 bg-slate-950/60 rounded-xl border border-slate-800/80">
@@ -886,7 +838,7 @@ export const PresetNav: React.FC<PresetNavProps> = ({
                             setInternalIsOpen(false);
                             onSelectPreset(preset);
                           }}
-                          className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-slate-800/60 hover:bg-slate-800 border border-slate-700/80 text-left transition-colors cursor-pointer min-w-0 overflow-hidden"
+                          className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-slate-800/60 hover:bg-slate-800 border border-slate-700/80 hover:border-sky-400/60 text-left transition-colors cursor-pointer min-w-0 overflow-hidden"
                         >
                           <div className="min-w-0 flex-1 overflow-hidden">
                             <div className="flex items-center justify-between gap-1.5 min-w-0">
