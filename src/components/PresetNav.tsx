@@ -14,6 +14,7 @@ import {
   Check,
   ArrowRightLeft,
   Pin,
+  RotateCcw,
 } from 'lucide-react';
 import type { PresetLocation } from '../types/map';
 import { AREA_GROUPS } from '../lib/hyakumeizanData';
@@ -461,7 +462,7 @@ export const PresetNav: React.FC<PresetNavProps> = ({
         <div
           ref={panelRef}
           id="preset-nav-panel"
-          className="safe-top-dropdown fixed z-30 rounded-2xl bg-slate-900/[0.98] border border-slate-700/80 shadow-2xl p-3.5 text-slate-100 w-[calc(100vw-1.5rem)] sm:w-[26rem] max-w-md space-y-3 overflow-y-auto min-h-[22rem]"
+          className="safe-top-dropdown fixed z-30 rounded-2xl bg-slate-900/[0.98] border border-slate-700/80 shadow-2xl p-3.5 text-slate-100 w-[calc(100vw-1.5rem)] sm:w-[27.5rem] max-w-md space-y-3 overflow-y-auto min-h-[22rem]"
         >
           {/* 3タブ切替: 🏔️ 百名山 / ⭐ お気に入り / 🔍 検索 */}
           <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-slate-950/85 border border-slate-800">
@@ -595,37 +596,43 @@ export const PresetNav: React.FC<PresetNavProps> = ({
           {/* === タブ2: ⭐ お気に入り（検索枠なし・シンプル一覧） === */}
           {activeTab === 'favorites' && (
             <div className="space-y-2 min-h-[17.5rem] flex flex-col">
-              <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs text-slate-300 font-semibold px-0.5">
-                <div className="flex items-center gap-2 min-w-0">
+              <div className="flex items-center justify-between gap-1.5 text-xs text-slate-300 font-semibold px-0.5 min-w-0">
+                <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 shrink">
                   <button
                     type="button"
                     onClick={() => setSelectedFavCategory('ALL')}
-                    title="すべてのお気に入りを表示"
-                    className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer border ${
+                    title={
                       selectedFavCategory === 'ALL'
-                        ? 'bg-sky-500/20 text-sky-200 border-sky-400/40'
+                        ? 'すべてのお気に入り'
+                        : 'すべてのお気に入りを表示'
+                    }
+                    className={`inline-flex items-center justify-center gap-1 w-[132px] sm:w-[138px] px-2 py-0.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer border shrink-0 ${
+                      selectedFavCategory !== 'ALL'
+                        ? 'bg-sky-500/20 text-sky-200 border-sky-400/50 hover:bg-sky-500/30'
                         : 'text-slate-300 hover:text-white hover:bg-slate-800/60 border-transparent'
                     }`}
                   >
-                    <span className="truncate">お気に入り ({favorites.length}件)</span>
                     {selectedFavCategory !== 'ALL' && (
-                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-sky-500/20 text-sky-300 border border-sky-400/30 font-normal">
-                        すべて表示
-                      </span>
+                      <RotateCcw className="w-3 h-3 text-sky-400 shrink-0" />
                     )}
+                    <span className="truncate">
+                      {selectedFavCategory === 'ALL'
+                        ? `お気に入り (${favorites.length}件)`
+                        : `すべて表示 (${favorites.length}件)`}
+                    </span>
                   </button>
                   {favorites.length > 1 && (
                     <div
                       role="radiogroup"
                       aria-label="並び順"
-                      className="inline-flex items-center p-0.5 rounded-lg bg-slate-900/80 border border-slate-700/80 text-[11px]"
+                      className="inline-flex items-center p-0.5 rounded-lg bg-slate-900/80 border border-slate-700/80 text-[11px] shrink-0"
                     >
                       <button
                         type="button"
                         role="radio"
                         aria-checked={favoritesSortOrder === 'distance'}
                         onClick={() => handleToggleFavoritesSortOrder('distance')}
-                        className={`px-2 py-0.5 rounded-md font-medium transition-colors cursor-pointer ${
+                        className={`px-1.5 sm:px-2 py-0.5 rounded-md font-medium transition-colors cursor-pointer ${
                           favoritesSortOrder === 'distance'
                             ? 'bg-sky-500 text-white font-bold shadow-sm'
                             : 'text-slate-400 hover:text-slate-200'
@@ -638,7 +645,7 @@ export const PresetNav: React.FC<PresetNavProps> = ({
                         role="radio"
                         aria-checked={favoritesSortOrder === 'created'}
                         onClick={() => handleToggleFavoritesSortOrder('created')}
-                        className={`px-2 py-0.5 rounded-md font-medium transition-colors cursor-pointer ${
+                        className={`px-1.5 sm:px-2 py-0.5 rounded-md font-medium transition-colors cursor-pointer ${
                           favoritesSortOrder === 'created'
                             ? 'bg-sky-500 text-white font-bold shadow-sm'
                             : 'text-slate-400 hover:text-slate-200'
@@ -656,7 +663,7 @@ export const PresetNav: React.FC<PresetNavProps> = ({
                     id="favorites-sync-open-btn"
                     onClick={onOpenFavoritesSync}
                     title="お気に入りの保存・復元"
-                    className="relative inline-flex items-center gap-1 shrink-0 min-h-[30px] px-2 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/40 text-amber-200 text-[11px] font-bold transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                    className="relative inline-flex items-center gap-1 shrink-0 min-h-[30px] px-2 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/40 text-amber-200 text-[11px] font-bold transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 whitespace-nowrap"
                   >
                     <ArrowRightLeft className="w-3.5 h-3.5" />
                     保存・復元
