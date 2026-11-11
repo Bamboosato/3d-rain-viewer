@@ -364,9 +364,9 @@ describe('PresetNav: お気に入り一覧のカテゴリバッジと絞り込�
     expect(items?.length).toBe(1);
     expect(items?.[0].textContent).toContain('旧登録地点');
 
-    // タイトルボタン「お気に入り (3件)」をクリックして全件表示に戻ること
+    // カテゴリ選択中はタイトルが「すべて表示 (3件)」に切り替わること、クリックして全件表示に戻ること
     const titleBtn = Array.from(host.querySelectorAll('button')).find((b) =>
-      b.textContent?.includes('お気に入り (3件)')
+      b.textContent?.includes('すべて表示 (3件)')
     ) as HTMLButtonElement;
     expect(titleBtn).toBeDefined();
     await act(async () => {
@@ -376,6 +376,12 @@ describe('PresetNav: お気に入り一覧のカテゴリバッジと絞り込�
     list = host.querySelector('#preset-favorite-list');
     items = list?.querySelectorAll(':scope > div');
     expect(items?.length).toBe(3);
+
+    // 全件表示復帰後はタイトルが「お気に入り (3件)」に戻ること
+    const restoredTitleBtn = Array.from(host.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('お気に入り (3件)')
+    );
+    expect(restoredTitleBtn).toBeDefined();
 
     // アイテム先頭にカテゴリのアイコンバッジ要素が存在すること
     const badge = items?.[0].querySelector('div[title*="カテゴリ"]');
