@@ -19,6 +19,7 @@ import {
   inspectLocationValues,
   JAPAN_RAIN_COORDINATES,
 } from '../lib/jaxaClient';
+import { createCategorySvgString, getFavoriteCategoryMeta } from '../lib/favoriteCategories';
 
 interface MapViewerProps {
   activePreset: PresetLocation;
@@ -87,21 +88,22 @@ export const MapViewer: React.FC<MapViewerProps> = ({
     favoriteMarkersRef.current = [];
 
     for (const fav of favList) {
+      const catMeta = getFavoriteCategoryMeta(fav.category);
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'fav-map-marker';
-      btn.title = `⭐ ${fav.name}（クリックして視点・インスペクターを表示）`;
-      btn.setAttribute('aria-label', `お気に入り地点: ${fav.name}`);
+      btn.className = `fav-map-marker fav-cat-${catMeta.id}`;
+      btn.title = `${catMeta.emoji} ${fav.name}（${catMeta.label} · クリックして視点・インスペクターを表示）`;
+      btn.setAttribute('aria-label', `お気に入り地点: ${fav.name}（${catMeta.label}）`);
 
-      const star = document.createElement('span');
-      star.className = 'fav-map-star';
-      star.textContent = '★';
+      const badge = document.createElement('span');
+      badge.className = 'fav-map-icon-badge';
+      badge.innerHTML = createCategorySvgString(catMeta.id, 13);
 
       const label = document.createElement('span');
       label.className = 'fav-map-label';
       label.textContent = fav.name;
 
-      btn.appendChild(star);
+      btn.appendChild(badge);
       btn.appendChild(label);
 
       btn.addEventListener('click', (ev) => {

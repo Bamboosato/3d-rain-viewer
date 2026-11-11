@@ -87,24 +87,25 @@
   touch-action: manipulation;
 }
 
-/* お気に入り地点の地図上マーカー（ズームレベル連動: 広域=★のみ / 詳細=★＋地点名） */
+/* お気に入り地点の地図上マーカー（4カテゴリ対応・ズームレベル連動: 広域=丸型ピンのみ / 詳細=丸型ピン＋地点名） */
 .fav-map-marker {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 3px 9px;
+  gap: 5px;
+  padding: 2px 9px 2px 3px;
   border-radius: 9999px;
-  background: rgba(15, 23, 42, 0.9);
-  border: 1.5px solid rgba(251, 191, 36, 0.85);
-  color: #fef3c7;
+  background: rgba(15, 23, 42, 0.92);
+  backdrop-blur: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #f8fafc;
   font-size: 11px;
   font-weight: 700;
   line-height: 1.2;
   white-space: nowrap;
   box-shadow:
-    0 4px 12px rgba(0, 0, 0, 0.55),
-    0 0 8px rgba(245, 158, 11, 0.35);
+    0 4px 12px rgba(0, 0, 0, 0.6),
+    0 0 1px rgba(255, 255, 255, 0.3);
   cursor: pointer;
   user-select: none;
   transition:
@@ -114,30 +115,79 @@
 }
 
 .fav-map-marker:hover {
-  transform: scale(1.08);
-  background: rgba(30, 41, 59, 0.95);
+  transform: scale(1.1);
+  background: rgba(30, 41, 59, 0.98);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.fav-map-icon-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 9999px;
+  color: #ffffff;
+  border: 1.5px solid;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+  flex-shrink: 0;
+}
+
+/* カテゴリ別アクセントスタイル */
+.fav-cat-nature .fav-map-icon-badge {
+  background: #059669;
+  border-color: #34d399;
+}
+.fav-cat-nature:hover {
+  border-color: #34d399;
+}
+
+.fav-cat-tourism .fav-map-icon-badge {
+  background: #d97706;
+  border-color: #fbbf24;
+}
+.fav-cat-tourism:hover {
   border-color: #fbbf24;
 }
 
-.fav-map-star {
-  color: #fbbf24;
-  font-size: 13px;
-  line-height: 1;
-  filter: drop-shadow(0 0 4px rgba(251, 191, 36, 0.5));
+.fav-cat-lifestyle .fav-map-icon-badge {
+  background: #4f46e5;
+  border-color: #818cf8;
+}
+.fav-cat-lifestyle:hover {
+  border-color: #818cf8;
+}
+
+.fav-cat-other .fav-map-icon-badge {
+  background: #475569;
+  border-color: #94a3b8;
+}
+.fav-cat-other:hover {
+  border-color: #94a3b8;
 }
 
 .fav-map-label {
   max-width: 120px;
   overflow: hidden;
   text-overflow: ellipsis;
+  padding-right: 2px;
 }
 
-/* 広域表示時 (zoom < 9) は文字ラベルを隠し、コンパクトな「★」バッジのみを表示 */
+/* 広域表示時 (zoom < 9) は文字ラベルを隠し、丸型ピンバッジのみを表示 */
 [data-fav-mode='wide'] .fav-map-marker {
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   padding: 0;
   gap: 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+[data-fav-mode='wide'] .fav-map-icon-badge {
+  width: 26px;
+  height: 26px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.6);
 }
 
 [data-fav-mode='wide'] .fav-map-label {

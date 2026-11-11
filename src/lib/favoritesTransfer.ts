@@ -6,6 +6,7 @@ import {
   MAX_FAVORITES_COUNT,
   MAX_NAME_LENGTH,
 } from './favoritesStorage';
+import { getFavoriteCategoryMeta, isFavoriteCategory, type FavoriteCategory } from './favoriteCategories';
 import { PUBLIC_APP_ORIGIN } from './urlSync';
 
 /**
@@ -101,6 +102,7 @@ export interface FavoriteInput {
   createdAt?: string;
   updatedAt?: string;
   isPinned?: boolean;
+  category?: FavoriteCategory;
 }
 
 /**
@@ -112,10 +114,11 @@ export function buildFavoriteLocation(input: FavoriteInput): PresetLocation {
   const pitch = Math.round(clamp(input.pitch, 0, 85));
   const bearing = Math.round(clamp(input.bearing, -180, 180));
   const now = new Date().toISOString();
+  const categoryMeta = getFavoriteCategoryMeta(input.category);
   return {
     id: input.id ?? `fav-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     name: input.name,
-    emoji: '⭐',
+    emoji: categoryMeta.emoji,
     areaGroup: FAVORITE_AREA_GROUP,
     region: `ズーム${zoom.toFixed(1)} · 傾き${pitch}°`,
     elevation: Math.round(isFiniteNumber(input.elevation) ? clamp(input.elevation, -500, 9000) : 0),
@@ -125,6 +128,7 @@ export function buildFavoriteLocation(input: FavoriteInput): PresetLocation {
     bearing,
     description: `登録時点のカメラ設定（縮尺 ${zoom.toFixed(1)} / 傾き ${pitch}° / 方角 ${bearing}°）を記憶したお気に入り地点です。`,
     isFavorite: true,
+    category: categoryMeta.id,
     createdAt: input.createdAt ?? input.updatedAt ?? now,
     updatedAt: input.updatedAt ?? input.createdAt ?? now,
     isPinned: input.isPinned ?? false,
@@ -154,6 +158,7 @@ function sanitizeFavorite(raw: unknown): PresetLocation | null {
   if (!isValidFavoriteLocation({ ...item, id: id ?? 'import', name })) throw new FavoritesTransferError('地点の座標・視点設定が不正です。');
   for (const key of ['createdAt', 'updatedAt']) if (item[key] !== undefined && !sanitizeIso(item[key])) throw new FavoritesTransferError('登録日時が不正です。');
   const isPinned = typeof item.isPinned === 'boolean' ? item.isPinned : undefined;
+  const category = isFavoriteCategory(item.category) ? item.category : 'other';
   return { ...buildFavoriteLocation({
     id,
     name,
@@ -166,7 +171,8 @@ function sanitizeFavorite(raw: unknown): PresetLocation | null {
     createdAt: sanitizeIso(item.createdAt),
     updatedAt: sanitizeIso(item.updatedAt),
     isPinned,
-  }), zoom: item.zoom, pitch: item.pitch, bearing: item.bearing, isPinned: isPinned ?? false };
+    category,
+  }), zoom: item.zoom, pitch: item.pitch, bearing: item.bearing, isPinned: isPinned ?? false, category };
 }
 
 function sanitizeList(rawItems: unknown[]): PresetLocation[] {

@@ -15,12 +15,16 @@ import {
 } from 'lucide-react';
 import type { InspectorPoint, PresetLocation } from '../types/map';
 import { fetchOsmPlaceCandidates, type OsmPlaceCandidate } from '../lib/osmPlaceClient';
+import {
+  FAVORITE_CATEGORY_LIST,
+  type FavoriteCategory,
+} from '../lib/favoriteCategories';
 
 interface InspectorProps {
   point: InspectorPoint | null;
   onClose: () => void;
   matchedFavorite?: PresetLocation | null;
-  onSaveFavorite?: (name: string) => void | Promise<any>;
+  onSaveFavorite?: (name: string, category: FavoriteCategory) => void | Promise<any>;
   onRemoveFavorite?: (id: string) => void | Promise<any>;
   onSharePoint?: (pointName: string) => void;
 }
@@ -107,6 +111,7 @@ export const Inspector: React.FC<InspectorProps> = ({
   useUpdateBlocker(isEditingFav || isSavingFav);
   const [favSaveError, setFavSaveError] = useState<string | null>(null);
   const [favNameInput, setFavNameInput] = useState<string>('');
+  const [favCategoryInput, setFavCategoryInput] = useState<FavoriteCategory>('nature');
   const [osmCandidates, setOsmCandidates] = useState<OsmPlaceCandidate[]>([]);
   const [isLoadingOsm, setIsLoadingOsm] = useState<boolean>(false);
   const [isShareCopied, setIsShareCopied] = useState<boolean>(false);
@@ -249,7 +254,7 @@ export const Inspector: React.FC<InspectorProps> = ({
     setIsSavingFav(true);
     setFavSaveError(null);
     try {
-      const res = await onSaveFavorite?.(trimmed);
+      const res = await onSaveFavorite?.(trimmed, favCategoryInput);
       if (res && typeof res === 'object' && res.success === false) {
         setFavSaveError(res.message || '保存に失敗しました。');
       } else {
@@ -364,6 +369,7 @@ export const Inspector: React.FC<InspectorProps> = ({
                 onClick={() => {
                   hasUserEditedRef.current = false;
                   setFavNameInput(getSuggestedFavoriteName(point));
+                  setFavCategoryInput('nature');
                   setIsEditingFav(true);
                 }}
                 className="flex-1 inline-flex items-center justify-center gap-1.5 min-h-[40px] px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/40 text-amber-200 text-sm font-bold transition-colors cursor-pointer truncate"
@@ -403,6 +409,7 @@ export const Inspector: React.FC<InspectorProps> = ({
                 onClick={() => {
                   hasUserEditedRef.current = false;
                   setFavNameInput(matchedFavorite.name);
+                  setFavCategoryInput(matchedFavorite.category ?? 'other');
                   setIsEditingFav(true);
                 }}
                 title="現在の視点で更新、または名前を変更"
@@ -466,6 +473,38 @@ export const Inspector: React.FC<InspectorProps> = ({
                 autoFocus
                 className="w-full rounded-xl bg-slate-950/90 border border-amber-400/50 px-3 py-2 text-base sm:text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-400"
               />
+
+              {/* カテゴリ選択（4カテゴリ横並びピル型ボタングループ） */}
+              <div className="space-y-1">
+                <div className="text-[11px] text-slate-300 font-semibold px-0.5">カテゴリ</div>
+                <div
+                  role="radiogroup"
+                  aria-label="お気に入りカテゴリ"
+                  className="grid grid-cols-4 gap-1 p-0.5 rounded-xl bg-slate-950/80 border border-slate-800"
+                >
+                  {FAVORITE_CATEGORY_LIST.map((cat) => {
+                    const isSelected = favCategoryInput === cat.id;
+                    const Icon = cat.icon;
+                    return (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        role="radio"
+                        aria-checked={isSelected}
+                        onClick={() => setFavCategoryInput(cat.id)}
+                        className={`inline-flex items-center justify-center gap-1 min-h-[34px] py-1 px-1 rounded-lg text-xs font-bold transition-all cursor-pointer select-none ${
+                          isSelected
+                            ? `${cat.activeBgClass} shadow-md`
+                            : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                        }`}
+                      >
+                        <Icon className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">{cat.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
 
               {/* OpenStreetMap 施設・地名候補チップ */}
               {(isLoadingOsm || osmCandidates.length > 0) && (
