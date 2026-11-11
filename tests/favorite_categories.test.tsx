@@ -303,7 +303,7 @@ describe('PresetNav: お気に入り一覧のカテゴリバッジと絞り込�
     // category 未設定 (旧データ)
   };
 
-  it('一覧上部に「すべて」「自然」「観光」「生活」「その他」タブが表示され、カテゴリ絞り込みができること', async () => {
+  it('一覧上部に4カテゴリボタンが表示され、絞り込み・トグル解除・タイトルクリックによる全件復帰ができること', async () => {
     await act(async () => {
       root.render(
         <PresetNav
@@ -323,9 +323,9 @@ describe('PresetNav: お気に入り一覧のカテゴリバッジと絞り込�
       favTabBtn.click();
     });
 
-    // カテゴリ絞り込みタブが5つ（すべて + 4カテゴリ）存在すること
+    // カテゴリ絞り込みボタンが4つ（自然・観光・生活・その他）存在すること（「すべて」はタイトルボタン化）
     const filterTabs = host.querySelectorAll('div[role="tablist"][aria-label="カテゴリで絞り込み"] button[role="tab"]');
-    expect(filterTabs.length).toBe(5);
+    expect(filterTabs.length).toBe(4);
 
     // 初期状態（すべて）では3件表示
     let list = host.querySelector('#preset-favorite-list');
@@ -345,6 +345,14 @@ describe('PresetNav: お気に入り一覧のカテゴリバッジと絞り込�
     expect(items?.length).toBe(1);
     expect(items?.[0].textContent).toContain('上高地');
 
+    // 選択中の「自然」タブを再度クリック（トグルで全件表示に戻ること）
+    await act(async () => {
+      natureTab.click();
+    });
+    list = host.querySelector('#preset-favorite-list');
+    items = list?.querySelectorAll(':scope > div');
+    expect(items?.length).toBe(3);
+
     // 「その他」タブをクリック（category 未設定の旧データが 'other' として抽出されること）
     const otherTab = Array.from(filterTabs).find((t) => t.textContent?.includes('その他')) as HTMLButtonElement;
     await act(async () => {
@@ -355,6 +363,19 @@ describe('PresetNav: お気に入り一覧のカテゴリバッジと絞り込�
     items = list?.querySelectorAll(':scope > div');
     expect(items?.length).toBe(1);
     expect(items?.[0].textContent).toContain('旧登録地点');
+
+    // タイトルボタン「お気に入り (3件)」をクリックして全件表示に戻ること
+    const titleBtn = Array.from(host.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('お気に入り (3件)')
+    ) as HTMLButtonElement;
+    expect(titleBtn).toBeDefined();
+    await act(async () => {
+      titleBtn.click();
+    });
+
+    list = host.querySelector('#preset-favorite-list');
+    items = list?.querySelectorAll(':scope > div');
+    expect(items?.length).toBe(3);
 
     // アイテム先頭にカテゴリのアイコンバッジ要素が存在すること
     const badge = items?.[0].querySelector('div[title*="カテゴリ"]');
