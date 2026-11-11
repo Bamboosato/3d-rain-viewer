@@ -597,7 +597,23 @@ export const PresetNav: React.FC<PresetNavProps> = ({
             <div className="space-y-2 min-h-[17.5rem] flex flex-col">
               <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs text-slate-300 font-semibold px-0.5">
                 <div className="flex items-center gap-2 min-w-0">
-                  <span className="truncate">お気に入り ({favorites.length}件)</span>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedFavCategory('ALL')}
+                    title="すべてのお気に入りを表示"
+                    className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer border ${
+                      selectedFavCategory === 'ALL'
+                        ? 'bg-sky-500/20 text-sky-200 border-sky-400/40'
+                        : 'text-slate-300 hover:text-white hover:bg-slate-800/60 border-transparent'
+                    }`}
+                  >
+                    <span className="truncate">お気に入り ({favorites.length}件)</span>
+                    {selectedFavCategory !== 'ALL' && (
+                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-sky-500/20 text-sky-300 border border-sky-400/30 font-normal">
+                        すべて表示
+                      </span>
+                    )}
+                  </button>
                   {favorites.length > 1 && (
                     <div
                       role="radiogroup"
@@ -654,26 +670,12 @@ export const PresetNav: React.FC<PresetNavProps> = ({
                 )}
               </div>
 
-              {/* カテゴリ絞り込みタブ: すべて / 自然 / 観光 / 生活 / その他 */}
+              {/* カテゴリ絞り込みボタン（4カテゴリ・上段アイコン／下段テキストの2段配置） */}
               <div
                 role="tablist"
                 aria-label="カテゴリで絞り込み"
-                className="flex items-center gap-1 overflow-x-auto pb-0.5 scrollbar-none text-[11px]"
+                className="grid grid-cols-4 gap-1.5"
               >
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={selectedFavCategory === 'ALL'}
-                  onClick={() => setSelectedFavCategory('ALL')}
-                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-bold transition-colors cursor-pointer shrink-0 ${
-                    selectedFavCategory === 'ALL'
-                      ? 'bg-sky-500 text-white shadow-sm'
-                      : 'bg-slate-950/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800 border border-slate-800'
-                  }`}
-                >
-                  <span>すべて</span>
-                  <span className="text-[10px] opacity-80">({favCategoryCounts.ALL})</span>
-                </button>
                 {FAVORITE_CATEGORY_LIST.map((cat) => {
                   const isSelected = selectedFavCategory === cat.id;
                   const Icon = cat.icon;
@@ -684,16 +686,19 @@ export const PresetNav: React.FC<PresetNavProps> = ({
                       type="button"
                       role="tab"
                       aria-selected={isSelected}
-                      onClick={() => setSelectedFavCategory(cat.id)}
-                      className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg font-bold transition-colors cursor-pointer shrink-0 ${
+                      onClick={() =>
+                        setSelectedFavCategory((prev) => (prev === cat.id ? 'ALL' : cat.id))
+                      }
+                      className={`flex flex-col items-center justify-center gap-1 py-1.5 px-1 rounded-xl min-h-[46px] font-bold transition-all cursor-pointer ${
                         isSelected
-                          ? `${cat.colorClass} shadow-sm border ${cat.borderColor}`
-                          : 'bg-slate-950/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800 border border-slate-800'
+                          ? `${cat.activeBgClass} border-2 shadow-sm`
+                          : 'bg-slate-900/80 hover:bg-slate-800/80 text-slate-300 hover:text-white border border-slate-700/70'
                       }`}
                     >
-                      <Icon className="w-3 h-3 shrink-0" />
-                      <span>{cat.label}</span>
-                      <span className="text-[10px] opacity-80">({count})</span>
+                      <Icon className="w-4 h-4 shrink-0" />
+                      <span className="text-[11px] leading-tight truncate">
+                        {cat.label} ({count})
+                      </span>
                     </button>
                   );
                 })}
