@@ -984,6 +984,144 @@ export const MapViewer: React.FC<MapViewerProps> = ({
     }
   }, [baseMap]);
 
+  // パネルや背景幕の上での Ctrl+ホイール / トラックパッドピンチ / スマホ2本指ピンチで
+  // ブラウザのページ拡大・縮小を防ぎ、地図のズーム操作へ転送する
+  useEffect(() => {
+    const isInsideMap = (target: EventTarget | null): boolean =>
+      typeof Node !== 'undefined' &&
+      target instanceof Node &&
+      Boolean(containerRef.current?.contains(target));
+
+    const isInsideDialog = (target: EventTarget | null): boolean =>
+      typeof Element !== 'undefined' &&
+      target instanceof Element &&
+      Boolean(target.closest('[role="dialog"]'));
+
+    const zoomMapByDelta = (
+      deltaZoom: number,
+      clientX: number,
+      clientY: number
+    ) => {
+      const map = internalMapRef.current;
+      if (!map || !Number.isFinite(deltaZoom) || deltaZoom === 0) return;
+
+      const currentZoom = typeof map.getZoom === 'function' ? map.getZoom() : null;
+      if (typeof currentZoom !== 'number' || !Number.isFinite(currentZoom)) return;
+
+      const minZoom = typeof map.getMinZoom === 'function' ? map.getMinZoom() : 4;
+      const maxZoom = typeof map.getMaxZoom === 'function' ? map.getMaxZoom() : 15;
+      const nextZoom = Math.max(minZoom, Math.min(maxZoom, currentZoom + deltaZoom));
+      if (Math.abs(nextZoom - currentZoom) < 1e-6) return;
+
+      let around: maplibregl.LngLat | undefined;
+      if (containerRef.current && typeof map.unproject === 'function') {
+        const rect = containerRef.current.getBoundingClientRect();
+        around = map.unproject([clientX - rect.left, clientY - rect.top]);
+      }
+
+      if (typeof map.zoomTo === 'function') {
+        map.zoomTo(nextZoom, {
+          duration: 0,
+          ...(around ? { around } : {}),
+        });
+      } else if (typeof map.jumpTo === 'function') {
+        map.jumpTo({
+          zoom: nextZoom,
+          ...(around ? { around } : {}),
+        });
+      } else if (typeof map.setZoom === 'function') {
+        map.setZoom(nextZoom);
+      }
+    };
+
+    const handleWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey || isInsideMap(e.target)) return;
+      e.preventDefault();
+      if (isInsideDialog(e.target)) return;
+
+      const scale = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 100 : 1;
+      const normalizedDeltaY = e.deltaY * scale;
+      const deltaZoom = Math.max(-1.2, Math.min(1.2, -normalizedDeltaY * 0.0045));
+      zoomMapByDelta(deltaZoom, e.clientX, e.clientY);
+    };
+
+    let pinchPrevDistance: number | null = null;
+    const bothTouchesInMap = (touches: TouchList): boolean =>
+      touches.length >= 2 &&
+      isInsideMap(touches[0]?.target ?? null) &&
+      isInsideMap(touches[1]?.target ?? null);
+
+    const touchDistance = (a: Touch, b: Touch): number =>
+      Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches.length < 2) {
+        pinchPrevDistance = null;
+        return;
+      }
+      if (bothTouchesInMap(e.touches)) {
+        pinchPrevDistance = null;
+        return;
+      }
+      e.preventDefault();
+      if (!isInsideDialog(e.target)) {
+        pinchPrevDistance = touchDistance(e.touches[0], e.touches[1]);
+      }
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (e.touches.length < 2) {
+        pinchPrevDistance = null;
+        return;
+      }
+      if (bothTouchesInMap(e.touches)) {
+        pinchPrevDistance = null;
+        return;
+      }
+      e.preventDefault();
+      if (isInsideDialog(e.target)) return;
+
+      const dist = touchDistance(e.touches[0], e.touches[1]);
+      if (pinchPrevDistance !== null && pinchPrevDistance > 1 && dist > 1) {
+        const deltaZoom = Math.max(-1.5, Math.min(1.5, Math.log2(dist / pinchPrevDistance)));
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+        zoomMapByDelta(deltaZoom, midX, midY);
+      }
+      pinchPrevDistance = dist;
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length < 2) {
+        pinchPrevDistance = null;
+      }
+    };
+
+    const handleSafariGesture = (e: Event) => {
+      if (!isInsideMap(e.target)) {
+        e.preventDefault();
+      }
+    };
+
+    window.addEventListener('wheel', handleWheel, { passive: false });
+    window.addEventListener('touchstart', handleTouchStart, { passive: false });
+    window.addEventListener('touchmove', handleTouchMove, { passive: false });
+    window.addEventListener('touchend', handleTouchEnd);
+    window.addEventListener('touchcancel', handleTouchEnd);
+    window.addEventListener('gesturestart', handleSafariGesture, { passive: false });
+    window.addEventListener('gesturechange', handleSafariGesture, { passive: false });
+
+    return () => {
+      window.removeEventListener('wheel', handleWheel);
+      window.removeEventListener('touchstart', handleTouchStart);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleTouchEnd);
+      window.removeEventListener('touchcancel', handleTouchEnd);
+      window.removeEventListener('gesturestart', handleSafariGesture);
+      window.removeEventListener('gesturechange', handleSafariGesture);
+    };
+  }, []);
+
   return (
     <div className="relative z-0 isolate w-full h-full">
       <div id="map" ref={containerRef} className="w-full h-full" />

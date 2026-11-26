@@ -247,7 +247,7 @@ export const RoutePlanner: React.FC<RoutePlannerProps> = ({
         className={`relative inline-flex items-center justify-center gap-1 sm:gap-1.5 w-[38px] h-[38px] sm:w-auto sm:min-h-[42px] sm:px-3.5 py-1.5 rounded-xl backdrop-blur-md border shadow-lg text-xs sm:text-sm font-bold transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 shrink-0 ${
           hasActiveRoute || isOpen
             ? 'bg-emerald-500/20 hover:bg-emerald-500/30 border-emerald-400/60 text-emerald-100'
-            : 'bg-slate-900/90 hover:bg-slate-800/95 border-slate-700/80 text-slate-100'
+            : 'bg-slate-900/65 hover:bg-slate-800/80 border-slate-700/60 text-slate-100'
         }`}
       >
         <Route className="w-4 h-4 text-emerald-400 shrink-0" />

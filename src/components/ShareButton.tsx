@@ -168,7 +168,7 @@ export const ShareButton: React.FC<ShareButtonProps> = ({
             ? 'bg-emerald-500/25 border-emerald-400/60 text-emerald-200'
             : isOpen
               ? 'bg-sky-500/25 border-sky-400/60 text-sky-100'
-              : 'bg-slate-900/90 hover:bg-slate-800 border-slate-700/80 text-slate-100'
+              : 'bg-slate-900/65 hover:bg-slate-800/80 border-slate-700/60 text-slate-100'
         }`}
       >
         {showToast ? (

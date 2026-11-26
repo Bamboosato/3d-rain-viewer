@@ -111,6 +111,10 @@ describe('MapViewer タイムライン連動・ルート上移動マーカー', 
       once: (name: string, fn: Function) => mocks.map.on(name, fn),
       off: (name: string, fn: Function) => handlers.get(name)?.delete(fn),
       getZoom: () => 10,
+      getMinZoom: () => 4,
+      getMaxZoom: () => 15,
+      unproject: (pt: [number, number]) => ({ lng: 139.5 + pt[0] * 0.001, lat: 35.5 - pt[1] * 0.001 }),
+      zoomTo: vi.fn(),
       getSource: (k: string) => sources.get(k),
       getLayer: (k: string) => layers.get(k),
       addSource: (k: string, v: any) => sources.set(k, v),
@@ -270,5 +274,118 @@ describe('MapViewer タイムライン連動・ルート上移動マーカー', 
     expect(travelMarker.lngLat?.[0]).toBeCloseTo(139.25, 4);
     expect(travelMarker.lngLat?.[1]).toBeCloseTo(35.25, 4);
     vi.unstubAllGlobals();
+  });
+
+  it('パネル上の Ctrl+ホイール および スマホ2本指ピンチでブラウザ拡大を抑止し地図ズームへ転送すること', async () => {
+    await act(async () => {
+      root.render(<MapViewer {...baseProps} />);
+    });
+    await act(async () => {
+      mocks.map._emit('load');
+    });
+
+    const panel = document.createElement('div');
+    panel.id = 'route-planner-panel';
+    document.body.appendChild(panel);
+
+    const dialog = document.createElement('div');
+    dialog.setAttribute('role', 'dialog');
+    document.body.appendChild(dialog);
+
+    const mapEl = document.getElementById('map')!;
+
+    const makeWheel = (opts: { ctrlKey: boolean; deltaY: number; clientX?: number; clientY?: number }) => {
+      const ev = new WheelEvent('wheel', {
+        bubbles: true,
+        cancelable: true,
+        deltaY: opts.deltaY,
+      });
+      Object.defineProperties(ev, {
+        ctrlKey: { value: opts.ctrlKey },
+        clientX: { value: opts.clientX ?? 200 },
+        clientY: { value: opts.clientY ?? 200 },
+      });
+      return ev;
+    };
+
+    try {
+      // 1. 通常ホイール（Ctrlなし）はブラウザ/パネル標準スクロールを妨げない
+      const normalWheel = makeWheel({ ctrlKey: false, deltaY: -120 });
+      panel.dispatchEvent(normalWheel);
+      expect(normalWheel.defaultPrevented).toBe(false);
+      expect(mocks.map.zoomTo).not.toHaveBeenCalled();
+
+      // 2. パネル上の Ctrl+ホイール（上回転 = ズームイン）
+      const zoomInWheel = makeWheel({ ctrlKey: true, deltaY: -120, clientX: 200, clientY: 200 });
+      panel.dispatchEvent(zoomInWheel);
+      expect(zoomInWheel.defaultPrevented).toBe(true);
+      expect(mocks.map.zoomTo).toHaveBeenCalledTimes(1);
+      expect(mocks.map.zoomTo.mock.calls[0][0]).toBeGreaterThan(10);
+
+      // 3. パネル上の Ctrl+ホイール（下回転 = ズームアウト）
+      mocks.map.zoomTo.mockClear();
+      const zoomOutWheel = makeWheel({ ctrlKey: true, deltaY: 120, clientX: 200, clientY: 200 });
+      panel.dispatchEvent(zoomOutWheel);
+      expect(zoomOutWheel.defaultPrevented).toBe(true);
+      expect(mocks.map.zoomTo).toHaveBeenCalledTimes(1);
+      expect(mocks.map.zoomTo.mock.calls[0][0]).toBeLessThan(10);
+
+      // 4. 地図要素(#map)上での Ctrl+ホイールは MapLibre 本体に任せ、二重ズームしない
+      mocks.map.zoomTo.mockClear();
+      const mapWheel = makeWheel({ ctrlKey: true, deltaY: -120 });
+      mapEl.dispatchEvent(mapWheel);
+      expect(mocks.map.zoomTo).not.toHaveBeenCalled();
+
+      // 5. モーダル([role="dialog"])上での Ctrl+ホイールはページ拡大を抑止しつつ地図は動かさない
+      const dialogWheel = makeWheel({ ctrlKey: true, deltaY: -120 });
+      dialog.dispatchEvent(dialogWheel);
+      expect(dialogWheel.defaultPrevented).toBe(true);
+      expect(mocks.map.zoomTo).not.toHaveBeenCalled();
+
+      // 6. パネル上の1本指タッチ移動は preventDefault しない（通常スクロール維持）
+      const singleTouchMove = new Event('touchmove', { bubbles: true, cancelable: true }) as any;
+      singleTouchMove.touches = [{ target: panel, clientX: 100, clientY: 100 }];
+      panel.dispatchEvent(singleTouchMove);
+      expect(singleTouchMove.defaultPrevented).toBe(false);
+
+      // 7. パネル上の2本指ピンチアウト -> preventDefault & zoomTo(>10)
+      const pinchStart = new Event('touchstart', { bubbles: true, cancelable: true }) as any;
+      pinchStart.touches = [
+        { target: panel, clientX: 100, clientY: 200 },
+        { target: panel, clientX: 200, clientY: 200 },
+      ];
+      panel.dispatchEvent(pinchStart);
+      expect(pinchStart.defaultPrevented).toBe(true);
+
+      const pinchOutMove = new Event('touchmove', { bubbles: true, cancelable: true }) as any;
+      pinchOutMove.touches = [
+        { target: panel, clientX: 50, clientY: 200 },
+        { target: panel, clientX: 250, clientY: 200 },
+      ];
+      panel.dispatchEvent(pinchOutMove);
+      expect(pinchOutMove.defaultPrevented).toBe(true);
+      expect(mocks.map.zoomTo).toHaveBeenCalledTimes(1);
+      expect(mocks.map.zoomTo.mock.calls[0][0]).toBeGreaterThan(10);
+
+      // 8. 2本指ピンチイン -> zoomTo(<10)
+      mocks.map.zoomTo.mockClear();
+      const pinchInMove = new Event('touchmove', { bubbles: true, cancelable: true }) as any;
+      pinchInMove.touches = [
+        { target: panel, clientX: 125, clientY: 200 },
+        { target: panel, clientX: 175, clientY: 200 },
+      ];
+      panel.dispatchEvent(pinchInMove);
+      expect(pinchInMove.defaultPrevented).toBe(true);
+      expect(mocks.map.zoomTo).toHaveBeenCalledTimes(1);
+      expect(mocks.map.zoomTo.mock.calls[0][0]).toBeLessThan(10);
+
+      // 9. iOS Safari gesturestart も地図外では抑止する
+      const gestureEvt = new Event('gesturestart', { bubbles: true, cancelable: true });
+      panel.dispatchEvent(gestureEvt);
+      expect(gestureEvt.defaultPrevented).toBe(true);
+    } finally {
+      panel.remove();
+      dialog.remove();
+    }
   });
 });

@@ -166,7 +166,7 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
     <section
       aria-label="雨雲タイムラプスコントローラー"
       aria-busy={isLoading}
-      className="pointer-events-auto rounded-2xl bg-slate-900/90 backdrop-blur-md border border-slate-700/80 shadow-2xl px-3 sm:px-4 pt-1 pb-2 sm:pb-2.5 text-sm text-slate-100 w-full max-w-xl overflow-hidden transition-all duration-300"
+      className="pointer-events-auto rounded-2xl bg-slate-900/65 backdrop-blur-md border border-slate-700/60 shadow-2xl px-3 sm:px-4 pt-1 pb-2 sm:pb-2.5 text-sm text-slate-100 w-full max-w-xl overflow-hidden transition-all duration-300"
     >
       {/* タイムライン上部のプルアップ／プルダウン引き出しドラッグハンドル */}
       <div
@@ -234,7 +234,7 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
             onClick={() => select(Math.max(0, thumbIndex - 1))}
             disabled={currentIndex <= 0}
             aria-label="前の時刻フレームへ戻る"
-            className="inline-flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-slate-800/90 hover:bg-slate-700 disabled:opacity-40 text-slate-100 border border-slate-700/80 transition-colors cursor-pointer shrink-0"
+            className="inline-flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-slate-800/65 hover:bg-slate-700/80 disabled:opacity-40 text-slate-100 border border-slate-700/60 transition-colors cursor-pointer shrink-0"
           >
             <SkipBack className="w-4 h-4" />
           </button>
@@ -244,7 +244,7 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
             onClick={() => select(Math.min(maxIndex, thumbIndex + 1))}
             disabled={currentIndex >= maxIndex}
             aria-label="次の時刻フレームへ進む"
-            className="inline-flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-slate-800/90 hover:bg-slate-700 disabled:opacity-40 text-slate-100 border border-slate-700/80 transition-colors cursor-pointer shrink-0"
+            className="inline-flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-slate-800/65 hover:bg-slate-700/80 disabled:opacity-40 text-slate-100 border border-slate-700/60 transition-colors cursor-pointer shrink-0"
           >
             <SkipForward className="w-4 h-4" />
           </button>
@@ -255,7 +255,7 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
             onClick={onToggleSpeed}
             title={`再生速度切替 (${playbackSpeed === 2 ? '0.5秒/コマ' : '1.0秒/コマ'})`}
             aria-label={`再生速度を切り替え（現在 ${playbackSpeed}倍速）`}
-            className="inline-flex items-center justify-center h-9 sm:h-10 px-2 sm:px-3 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-100 font-mono text-xs sm:text-sm font-bold transition-colors cursor-pointer border border-slate-700/80 shrink-0"
+            className="inline-flex items-center justify-center h-9 sm:h-10 px-2 sm:px-3 rounded-xl bg-slate-800/65 hover:bg-slate-700/80 text-slate-100 font-mono text-xs sm:text-sm font-bold transition-colors cursor-pointer border border-slate-700/60 shrink-0"
           >
             {playbackSpeed}x
           </button>
@@ -277,7 +277,7 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
               ? 'クリック／タップして現在時刻の実況へ戻る'
               : undefined
           }
-          className="flex items-center justify-center gap-1.5 sm:gap-2 h-9 sm:h-10 px-2.5 sm:px-3.5 rounded-xl bg-slate-950/90 border border-sky-500/40 shadow-inner min-w-0 cursor-pointer"
+          className="flex items-center justify-center gap-1.5 sm:gap-2 h-9 sm:h-10 px-2.5 sm:px-3.5 rounded-xl bg-slate-950/65 border border-sky-500/40 shadow-inner min-w-0 cursor-pointer"
         >
           <Clock
             className={`w-3.5 h-3.5 sm:w-4 sm:h-4 text-sky-400 shrink-0 ${
@@ -328,7 +328,7 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
             step={1}
             value={thumbIndex}
             onChange={(e) => seek(parseInt(e.target.value, 10))}
-            className="relative z-10 w-full accent-sky-400 cursor-pointer h-2 bg-slate-700/90 rounded-lg"
+            className="relative z-10 w-full accent-sky-400 cursor-pointer h-2 bg-slate-700/70 rounded-lg"
           />
         </div>
 
