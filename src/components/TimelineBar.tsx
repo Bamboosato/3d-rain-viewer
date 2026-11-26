@@ -265,6 +265,9 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
         <div
           id="timeline-timestamp-badge"
           onClick={() => {
+            if (isPlaying) {
+              onTogglePlay();
+            }
             if (rainSource === 'jma-nowcast' && latestObsIndex >= 0) {
               select(latestObsIndex);
             }

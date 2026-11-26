@@ -128,7 +128,7 @@ export function clearPointTimeseriesCache(): void {
   resultCache.clear();
 }
 
-async function loadTilePixelData(
+export async function loadTilePixelData(
   url: string,
   signal?: AbortSignal
 ): Promise<Uint8ClampedArray | null> {

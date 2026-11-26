@@ -80,7 +80,7 @@ self.addEventListener('fetch', event => {
   const request = event.request;
   if (request.method !== 'GET') return;
   const url = new URL(request.url);
-  if (url.pathname.startsWith('/src/') || url.pathname.startsWith('/@') || url.pathname.startsWith('/node_modules/')) return;
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/src/') || url.pathname.startsWith('/@') || url.pathname.startsWith('/node_modules/')) return;
   const sameOrigin = url.origin === self.location.origin;
   const jma = url.hostname === 'www.jma.go.jp' && url.pathname.startsWith('/bosai/jmatile/');
   if (!sameOrigin && !jma) return;
