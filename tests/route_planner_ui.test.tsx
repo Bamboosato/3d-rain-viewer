@@ -165,6 +165,12 @@ describe('RoutePlanner コンポーネント', () => {
       );
     });
 
+    const favBtn = Array.from(host.querySelectorAll('button')).find(b =>
+      b.textContent?.trim() === 'お気に入り'
+    );
+    expect(favBtn?.className).toContain('whitespace-nowrap');
+    expect(favBtn?.className).toContain('flex-col');
+
     // 百名山ピッカーを開いて高尾山を選択
     const mtnButtons = Array.from(host.querySelectorAll('button')).filter(b =>
       b.textContent?.includes('百名山')
@@ -216,8 +222,9 @@ describe('RoutePlanner コンポーネント', () => {
     expect(onRunRouteCheck).toHaveBeenCalledTimes(1);
   });
 
-  it('解析サマリーとエラーアラートを表示できること', async () => {
+  it('解析サマリーとエラーアラートおよび百名山POINT_NOT_FOUND時の登山・徒歩再検索ボタンを表示できること', async () => {
     const onFocusCheckpoint = vi.fn();
+    const onSwitchToHikingAndRetry = vi.fn();
 
     await act(async () => {
       root.render(
@@ -238,7 +245,9 @@ describe('RoutePlanner コンポーネント', () => {
           onClearRoute={vi.fn()}
           analysis={sampleAnalysis}
           isLoading={false}
-          error="サーバーに ORS_API_KEY が設定されていません。"
+          error="指定地点の近くに車・自転車で通行可能な道路が見つかりませんでした。"
+          errorCode="POINT_NOT_FOUND"
+          onSwitchToHikingAndRetry={onSwitchToHikingAndRetry}
           onFocusCheckpoint={onFocusCheckpoint}
           isOpen={true}
           onToggleOpen={vi.fn()}
@@ -247,7 +256,13 @@ describe('RoutePlanner コンポーネント', () => {
     });
 
     const alert = host.querySelector('[role="alert"]');
-    expect(alert?.textContent).toContain('ORS_API_KEY');
+    expect(alert?.textContent).toContain('通行可能な道路');
+    const retryBtn = host.querySelector('#route-switch-hiking-retry-btn') as HTMLButtonElement;
+    expect(retryBtn).not.toBeNull();
+    await act(async () => {
+      retryBtn.click();
+    });
+    expect(onSwitchToHikingAndRetry).toHaveBeenCalledTimes(1);
 
     const summary = host.querySelector('#route-weather-summary');
     expect(summary?.textContent).toContain('115 km');

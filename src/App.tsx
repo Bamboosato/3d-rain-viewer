@@ -24,6 +24,7 @@ import { RoutePlanner, type RouteEndpoint } from './components/RoutePlanner';
 import {
   fetchRouteFromProxy,
   RouteClientError,
+  type RouteErrorCode,
   type RouteProfile,
 } from './lib/orsClient';
 import {
@@ -264,6 +265,7 @@ export const App: React.FC = () => {
   const [routeAnalysis, setRouteAnalysis] = useState<RouteWeatherAnalysis | null>(null);
   const [isAnalyzingRoute, setIsAnalyzingRoute] = useState<boolean>(false);
   const [routeError, setRouteError] = useState<string | null>(null);
+  const [routeErrorCode, setRouteErrorCode] = useState<RouteErrorCode | null>(null);
   const routeAbortRef = useRef<AbortController | null>(null);
   const routeRequestIdRef = useRef<number>(0);
   // お気に入りのバックアップ・引き継ぎダイアログ（null = 非表示）
@@ -1502,6 +1504,7 @@ export const App: React.FC = () => {
     setRouteOrigin(routeDestination);
     setRouteDestination(routeOrigin);
     setRouteError(null);
+    setRouteErrorCode(null);
   }, [routeOrigin, routeDestination]);
 
   const handleStartRouteMapPick = useCallback((target: 'origin' | 'destination') => {
@@ -1535,6 +1538,7 @@ export const App: React.FC = () => {
         setRouteDestination(endpoint);
       }
       setRouteError(null);
+      setRouteErrorCode(null);
       runViewTransition(() => {
         setRoutePickMode(null);
         setOpenTopPanel('route');
@@ -1550,6 +1554,7 @@ export const App: React.FC = () => {
     setIsAnalyzingRoute(false);
     setRouteAnalysis(null);
     setRouteError(null);
+    setRouteErrorCode(null);
     setRouteOrigin(null);
     setRouteDestination(null);
     setRoutePickMode(null);
@@ -1573,9 +1578,11 @@ export const App: React.FC = () => {
     [rainSource, handleSelectTimeIndex]
   );
 
-  const handleAnalyzeRoute = useCallback(async () => {
+  const handleAnalyzeRoute = useCallback(async (overrideProfile?: RouteProfile) => {
+    const activeProfile = overrideProfile ?? routeProfile;
     if (!routeOrigin || !routeDestination) {
       setRouteError('出発地と目的地の両方を指定してください。');
+      setRouteErrorCode('INVALID_REQUEST');
       return;
     }
 
@@ -1586,11 +1593,12 @@ export const App: React.FC = () => {
 
     setIsAnalyzingRoute(true);
     setRouteError(null);
+    setRouteErrorCode(null);
 
     try {
       const [route, catalog] = await Promise.all([
         fetchRouteFromProxy({
-          profile: routeProfile,
+          profile: activeProfile,
           coordinates: [
             [routeOrigin.lng, routeOrigin.lat],
             [routeDestination.lng, routeDestination.lat],
@@ -1630,12 +1638,14 @@ export const App: React.FC = () => {
       if (err instanceof RouteClientError) {
         if (err.code === 'ABORTED') return;
         setRouteError(err.userMessage);
+        setRouteErrorCode(err.code);
       } else {
         setRouteError(
           err instanceof Error && err.message
             ? err.message
             : 'ルートまたは雨雲データの取得に失敗しました。'
         );
+        setRouteErrorCode('NETWORK_ERROR');
       }
     } finally {
       if (reqId === routeRequestIdRef.current) {
@@ -1650,6 +1660,11 @@ export const App: React.FC = () => {
     rainSource,
     handleSelectTimeIndex,
   ]);
+
+  const handleSwitchToHikingAndRetry = useCallback(() => {
+    setRouteProfile('foot-hiking');
+    void handleAnalyzeRoute('foot-hiking');
+  }, [handleAnalyzeRoute]);
 
   return (
     <div className="app-viewport overflow-hidden bg-slate-950 select-none">
@@ -1773,11 +1788,15 @@ export const App: React.FC = () => {
             departureOffsetMinutes={routeDepartureOffset}
             onChangeDepartureOffsetMinutes={setRouteDepartureOffset}
             onStartMapPick={handleStartRouteMapPick}
-            onRunRouteCheck={handleAnalyzeRoute}
+            onRunRouteCheck={() => {
+              void handleAnalyzeRoute();
+            }}
             onClearRoute={handleClearRoute}
             analysis={routeAnalysis}
             isLoading={isAnalyzingRoute}
             error={routeError}
+            errorCode={routeErrorCode}
+            onSwitchToHikingAndRetry={handleSwitchToHikingAndRetry}
             onFocusCheckpoint={handleFocusRouteCheckpoint}
             isOpen={openTopPanel === 'route'}
             onToggleOpen={() =>

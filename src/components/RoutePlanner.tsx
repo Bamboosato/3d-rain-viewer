@@ -20,7 +20,7 @@ import {
   X,
 } from 'lucide-react';
 import type { PresetLocation } from '../types/map';
-import type { RouteProfile } from '../lib/orsClient';
+import type { RouteErrorCode, RouteProfile } from '../lib/orsClient';
 import type {
   RouteCheckpoint,
   RouteWeatherAnalysis,
@@ -52,6 +52,8 @@ interface RoutePlannerProps {
   analysis: RouteWeatherAnalysis | null;
   isLoading: boolean;
   error: string | null;
+  errorCode?: RouteErrorCode | null;
+  onSwitchToHikingAndRetry?: () => void;
   onFocusCheckpoint?: (checkpoint: RouteCheckpoint) => void;
   isOpen?: boolean;
   onToggleOpen?: () => void;
@@ -119,6 +121,8 @@ export const RoutePlanner: React.FC<RoutePlannerProps> = ({
   analysis,
   isLoading,
   error,
+  errorCode = null,
+  onSwitchToHikingAndRetry,
   onFocusCheckpoint,
   isOpen: controlledIsOpen,
   onToggleOpen,
@@ -341,18 +345,18 @@ export const RoutePlanner: React.FC<RoutePlannerProps> = ({
                     </div>
                   </div>
 
-                  {/* 選択ソースボタン群 */}
+                  {/* 選択ソースボタン群（縦2段レイアウト＋whitespace-nowrapで折り返し防止） */}
                   <div className="grid grid-cols-4 gap-1">
                     <button
                       type="button"
                       onClick={() => handleUseCurrentLocation(row.target)}
                       disabled={isLocatingThis}
-                      className="inline-flex items-center justify-center gap-1 min-h-[30px] px-1.5 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-[10px] font-medium text-slate-200 cursor-pointer"
+                      className="flex flex-col items-center justify-center gap-0.5 min-h-[42px] px-1 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-[10px] font-medium leading-tight whitespace-nowrap text-slate-200 cursor-pointer"
                     >
                       {isLocatingThis ? (
-                        <Loader2 className="w-3 h-3 animate-spin text-sky-400" />
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-400 shrink-0" />
                       ) : (
-                        <LocateFixed className="w-3 h-3 text-sky-400" />
+                        <LocateFixed className="w-3.5 h-3.5 text-sky-400 shrink-0" />
                       )}
                       <span>現在地</span>
                     </button>
@@ -366,13 +370,13 @@ export const RoutePlanner: React.FC<RoutePlannerProps> = ({
                             : { target: row.target, kind: 'favorite' }
                         )
                       }
-                      className={`inline-flex items-center justify-center gap-1 min-h-[30px] px-1.5 py-1 rounded-lg text-[10px] font-medium cursor-pointer ${
+                      className={`flex flex-col items-center justify-center gap-0.5 min-h-[42px] px-1 py-1.5 rounded-lg text-[10px] font-medium leading-tight whitespace-nowrap cursor-pointer ${
                         isPickerFav
                           ? 'bg-amber-500/25 text-amber-200 border border-amber-400/50'
                           : 'bg-slate-800/80 hover:bg-slate-700 text-slate-200'
                       }`}
                     >
-                      <Star className="w-3 h-3 text-amber-400" />
+                      <Star className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                       <span>お気に入り</span>
                     </button>
 
@@ -386,13 +390,13 @@ export const RoutePlanner: React.FC<RoutePlannerProps> = ({
                             : { target: row.target, kind: 'hyakumeizan' }
                         );
                       }}
-                      className={`inline-flex items-center justify-center gap-1 min-h-[30px] px-1.5 py-1 rounded-lg text-[10px] font-medium cursor-pointer ${
+                      className={`flex flex-col items-center justify-center gap-0.5 min-h-[42px] px-1 py-1.5 rounded-lg text-[10px] font-medium leading-tight whitespace-nowrap cursor-pointer ${
                         isPickerMtn
                           ? 'bg-emerald-500/25 text-emerald-200 border border-emerald-400/50'
                           : 'bg-slate-800/80 hover:bg-slate-700 text-slate-200'
                       }`}
                     >
-                      <Mountain className="w-3 h-3 text-emerald-400" />
+                      <Mountain className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                       <span>百名山</span>
                     </button>
 
@@ -402,9 +406,9 @@ export const RoutePlanner: React.FC<RoutePlannerProps> = ({
                         setActivePicker(null);
                         onStartMapPick(row.target);
                       }}
-                      className="inline-flex items-center justify-center gap-1 min-h-[30px] px-1.5 py-1 rounded-lg bg-slate-800/80 hover:bg-sky-500/25 hover:text-sky-200 text-[10px] font-medium text-slate-200 cursor-pointer"
+                      className="flex flex-col items-center justify-center gap-0.5 min-h-[42px] px-1 py-1.5 rounded-lg bg-slate-800/80 hover:bg-sky-500/25 hover:text-sky-200 text-[10px] font-medium leading-tight whitespace-nowrap text-slate-200 cursor-pointer"
                     >
-                      <MousePointerClick className="w-3 h-3 text-sky-300" />
+                      <MousePointerClick className="w-3.5 h-3.5 text-sky-300 shrink-0" />
                       <span>地図</span>
                     </button>
                   </div>
@@ -588,10 +592,28 @@ export const RoutePlanner: React.FC<RoutePlannerProps> = ({
           {error && (
             <div
               role="alert"
-              className="rounded-xl bg-rose-500/15 border border-rose-400/40 px-3 py-2 text-[11px] text-rose-200 flex items-start gap-2"
+              className="rounded-xl bg-rose-500/15 border border-rose-400/40 px-3 py-2 text-[11px] text-rose-200 space-y-2"
             >
-              <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-              <span>{error}</span>
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                <span>{error}</span>
+              </div>
+              {errorCode === 'POINT_NOT_FOUND' &&
+                profile !== 'foot-hiking' &&
+                (origin?.source === 'hyakumeizan' ||
+                  destination?.source === 'hyakumeizan') &&
+                onSwitchToHikingAndRetry && (
+                  <button
+                    type="button"
+                    id="route-switch-hiking-retry-btn"
+                    onClick={onSwitchToHikingAndRetry}
+                    disabled={isLoading}
+                    className="w-full inline-flex items-center justify-center gap-1.5 min-h-[32px] px-2.5 py-1 rounded-lg bg-emerald-500/25 hover:bg-emerald-500/35 border border-emerald-400/50 text-emerald-100 font-semibold text-[11px] cursor-pointer"
+                  >
+                    <Footprints className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
+                    <span>登山・徒歩に切り替えて再検索</span>
+                  </button>
+                )}
             </div>
           )}
 

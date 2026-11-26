@@ -138,11 +138,37 @@ describe('api/route handleRouteRequest', () => {
     );
     expect((calledInit?.headers as Record<string, string>)?.Authorization).toBe(secret);
     const sentBody = JSON.parse(String(calledInit?.body));
-    expect(sentBody.radiuses).toEqual([1500, 1500]);
+    expect(sentBody.radiuses).toEqual([3000, 3000]);
 
     const bodyText = await res.text();
     expect(bodyText).not.toContain(secret);
     expect(JSON.parse(bodyText).type).toBe('FeatureCollection');
+  });
+
+  it('driving-car では既定 radiuses=[5000, 5000] を付与し、2010 エラー時に登山・徒歩への切替案内を返すこと', async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({ error: { code: 2010, message: 'Could not find point 0' } }),
+        { status: 404 }
+      )
+    );
+    const res = await handleRouteRequest(
+      makePostRequest({
+        profile: 'driving-car',
+        coordinates: [
+          [138.2283, 35.6461],
+          [138.7274, 35.3606],
+        ],
+      }),
+      'test-key',
+      fetchMock as any
+    );
+    const sentBody = JSON.parse(String((fetchMock.mock.calls[0] as any)[1]?.body));
+    expect(sentBody.radiuses).toEqual([5000, 5000]);
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.code).toBe('POINT_NOT_FOUND');
+    expect(json.error).toContain('登山・徒歩');
   });
 
   it('ORS エラー (401 / 429 / 2010 / 2004) 時に API キーを露出せず適切に変換すること', async () => {
