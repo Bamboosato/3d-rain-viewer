@@ -33,3 +33,28 @@ it('source change drops a pending old-source selection',async()=>{
  await input(2);await act(async()=>render(0,'jaxa-gsmap'));
  await act(async()=>{await vi.advanceTimersByTimeAsync(200);});expect(select).not.toHaveBeenCalled();
 });
+it('clicking timestamp badge while playing stops playback and returns to latest observation',async()=>{
+ const togglePlay=vi.fn();
+ await act(async()=>{
+  root.render(<TimelineBar rainSource="jma-nowcast" frames={frames} currentIndex={2} onSelectIndex={select} onPreviewIndex={preview}
+  isPlaying={true} onTogglePlay={togglePlay} playbackSpeed={1} onToggleSpeed={()=>{}} observedDateJST={frames[2].labelJST}
+  displayedFrame={frames[2]} isLoading={false}/>);
+ });
+ await act(async()=>{
+  (host.querySelector('#timeline-timestamp-badge') as HTMLElement).click();
+ });
+ expect(togglePlay).toHaveBeenCalledTimes(1);
+ expect(select).toHaveBeenCalledWith(0);
+
+ togglePlay.mockClear();select.mockClear();
+ await act(async()=>{
+  root.render(<TimelineBar rainSource="jma-nowcast" frames={frames} currentIndex={2} onSelectIndex={select} onPreviewIndex={preview}
+  isPlaying={false} onTogglePlay={togglePlay} playbackSpeed={1} onToggleSpeed={()=>{}} observedDateJST={frames[2].labelJST}
+  displayedFrame={frames[2]} isLoading={false}/>);
+ });
+ await act(async()=>{
+  (host.querySelector('#timeline-timestamp-badge') as HTMLElement).click();
+ });
+ expect(togglePlay).not.toHaveBeenCalled();
+ expect(select).toHaveBeenCalledWith(0);
+});

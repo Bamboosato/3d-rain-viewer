@@ -20,6 +20,18 @@ import { Legend } from './components/Legend';
 import { Inspector } from './components/Inspector';
 import { TimelineBar } from './components/TimelineBar';
 import { ShareButton } from './components/ShareButton';
+import { RoutePlanner, type RouteEndpoint } from './components/RoutePlanner';
+import {
+  fetchRouteFromProxy,
+  RouteClientError,
+  type RouteProfile,
+} from './lib/orsClient';
+import {
+  analyzeRouteWeather,
+  computeRoutePlaybackStepMs,
+  type RouteCheckpoint,
+  type RouteWeatherAnalysis,
+} from './lib/routeWeatherAnalyzer';
 import { PRESET_LOCATIONS } from './lib/maplibreHelper';
 import {
   fetchGSMaPRainLayer,
@@ -89,6 +101,25 @@ import type {
   TimelineFrameItem,
   WebGPUStatus,
 } from './types/map';
+
+function findNearestFrameIndex(
+  targetDate: Date,
+  frames: TimelineFrameItem[]
+): number {
+  if (!frames || frames.length === 0) return -1;
+  const targetMs = targetDate.getTime();
+  if (!Number.isFinite(targetMs)) return -1;
+  let bestIdx = 0;
+  let bestDiff = Infinity;
+  for (let i = 0; i < frames.length; i++) {
+    const diff = Math.abs(frames[i].date.getTime() - targetMs);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      bestIdx = i;
+    }
+  }
+  return bestIdx;
+}
 
 export const App: React.FC = () => {
   const initialFavoritesRef = useRef<PresetLocation[] | null>(null);
@@ -222,7 +253,19 @@ export const App: React.FC = () => {
   });
   const [shareToastVersion, setShareToastVersion] = useState<number>(0);
   const [showCreditModal, setShowCreditModal] = useState<boolean>(false);
-  const [openTopPanel, setOpenTopPanel] = useState<'preset' | 'layer' | 'share' | null>(null);
+  const [openTopPanel, setOpenTopPanel] = useState<
+    'preset' | 'layer' | 'share' | 'route' | null
+  >(null);
+  const [routeOrigin, setRouteOrigin] = useState<RouteEndpoint | null>(null);
+  const [routeDestination, setRouteDestination] = useState<RouteEndpoint | null>(null);
+  const [routeProfile, setRouteProfile] = useState<RouteProfile>('driving-car');
+  const [routeDepartureOffset, setRouteDepartureOffset] = useState<number>(0);
+  const [routePickMode, setRoutePickMode] = useState<'origin' | 'destination' | null>(null);
+  const [routeAnalysis, setRouteAnalysis] = useState<RouteWeatherAnalysis | null>(null);
+  const [isAnalyzingRoute, setIsAnalyzingRoute] = useState<boolean>(false);
+  const [routeError, setRouteError] = useState<string | null>(null);
+  const routeAbortRef = useRef<AbortController | null>(null);
+  const routeRequestIdRef = useRef<number>(0);
   // お気に入りのバックアップ・引き継ぎダイアログ（null = 非表示）
   const [favoritesSyncDialog, setFavoritesSyncDialog] = useState<{
     pendingImport: PendingFavoritesImport | null;
@@ -318,6 +361,7 @@ export const App: React.FC = () => {
   useEffect(() => {
     const stop = () => {
       for (const entry of frameControllers.current.values()) entry.controller.abort();
+      routeAbortRef.current?.abort();
       setIsPlaying(false); setIsLoadingRain(false);
     };
     const hide = () => { if (document.visibilityState === 'hidden') stop(); };
@@ -327,6 +371,7 @@ export const App: React.FC = () => {
       document.removeEventListener('visibilitychange', hide);
       window.removeEventListener('pagehide', stop); window.removeEventListener('offline', stop);
       for (const entry of frameControllers.current.values()) entry.controller.abort();
+      routeAbortRef.current?.abort();
     };
   }, []);
 
@@ -824,12 +869,23 @@ export const App: React.FC = () => {
     });
   }, [currentTimeIndex, timelineFrames.length]);
 
-  // 機能A-2: タイムラプス自動コマ送り・終端停止（1x: 1000ms / 2x: 500ms）
+  const activePlaybackIntervalMs = useMemo(
+    () =>
+      computeRoutePlaybackStepMs({
+        playbackSpeed,
+        currentFrameTime: timelineFrames[currentTimeIndex]?.date ?? null,
+        nextFrameTime: timelineFrames[currentTimeIndex + 1]?.date ?? null,
+        routeAnalysis,
+        rainSource,
+      }),
+    [playbackSpeed, timelineFrames, currentTimeIndex, routeAnalysis, rainSource]
+  );
+
+  // 機能A-2: タイムラプス自動コマ送り・終端停止（ルート移動中は実時間差に比例）
   useEffect(() => {
     if (!isPlaying || isLoadingRain || timelineFrames.length <= 1) return;
 
-    const intervalMs = playbackSpeed === 2 ? 500 : 1000;
-    const timer = window.setInterval(() => {
+    const timer = window.setTimeout(() => {
       if (startedAtEndRef.current) {
         startedAtEndRef.current = false;
         handleSelectTimeIndex(0);
@@ -841,10 +897,10 @@ export const App: React.FC = () => {
         return;
       }
       handleSelectTimeIndex(nextIdx);
-    }, intervalMs);
+    }, activePlaybackIntervalMs);
 
-    return () => window.clearInterval(timer);
-  }, [isPlaying, isLoadingRain, playbackSpeed, currentTimeIndex, timelineFrames.length, handleSelectTimeIndex]);
+    return () => window.clearTimeout(timer);
+  }, [isPlaying, isLoadingRain, activePlaybackIntervalMs, currentTimeIndex, timelineFrames.length, handleSelectTimeIndex]);
 
   // 山岳プリセット・お気に入り・検索地点切替 (View Transitions API 連動 + インスペクター自動表示)
   const handleSelectPreset = useCallback(
@@ -1418,9 +1474,9 @@ export const App: React.FC = () => {
     });
   }, [handleImportUrlState, openFavoritesImportFromPayload]);
 
-  // モーダル・上部パネルオープン時の Escape キー対応 (a11y-debugging 準拠)
+  // モーダル・上部パネル・ルート地点選択モード時の Escape キー対応 (a11y-debugging 準拠)
   useEffect(() => {
-    if (!showCreditModal && !openTopPanel) return;
+    if (!showCreditModal && !openTopPanel && !routePickMode) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (showCreditModal) {
@@ -1428,6 +1484,11 @@ export const App: React.FC = () => {
             () => setShowCreditModal(false),
             { focusTargetSelector: '#jaxa-credit-trigger-btn' }
           );
+        } else if (routePickMode) {
+          runViewTransition(() => {
+            setRoutePickMode(null);
+            setOpenTopPanel('route');
+          });
         } else if (openTopPanel) {
           runViewTransition(() => setOpenTopPanel(null));
         }
@@ -1435,7 +1496,160 @@ export const App: React.FC = () => {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showCreditModal, openTopPanel]);
+  }, [showCreditModal, openTopPanel, routePickMode]);
+
+  const handleSwapRouteEndpoints = useCallback(() => {
+    setRouteOrigin(routeDestination);
+    setRouteDestination(routeOrigin);
+    setRouteError(null);
+  }, [routeOrigin, routeDestination]);
+
+  const handleStartRouteMapPick = useCallback((target: 'origin' | 'destination') => {
+    runViewTransition(() => {
+      setOpenTopPanel(null);
+      setInspectedPoint(null);
+      setRoutePickMode(target);
+    });
+  }, []);
+
+  const handleCancelRouteMapPick = useCallback(() => {
+    runViewTransition(() => {
+      setRoutePickMode(null);
+      setOpenTopPanel('route');
+    });
+  }, []);
+
+  const handlePickRoutePoint = useCallback(
+    ({ lng, lat }: { lng: number; lat: number }) => {
+      const target = routePickMode;
+      if (!target) return;
+      const endpoint: RouteEndpoint = {
+        lng,
+        lat,
+        label: `📍 ${lat.toFixed(4)}, ${lng.toFixed(4)}`,
+        source: 'map',
+      };
+      if (target === 'origin') {
+        setRouteOrigin(endpoint);
+      } else {
+        setRouteDestination(endpoint);
+      }
+      setRouteError(null);
+      runViewTransition(() => {
+        setRoutePickMode(null);
+        setOpenTopPanel('route');
+      });
+    },
+    [routePickMode]
+  );
+
+  const handleClearRoute = useCallback(() => {
+    routeRequestIdRef.current++;
+    routeAbortRef.current?.abort();
+    routeAbortRef.current = null;
+    setIsAnalyzingRoute(false);
+    setRouteAnalysis(null);
+    setRouteError(null);
+    setRouteOrigin(null);
+    setRouteDestination(null);
+    setRoutePickMode(null);
+  }, []);
+
+  const handleFocusRouteCheckpoint = useCallback(
+    (cp: RouteCheckpoint) => {
+      mapInstanceRef.current?.flyTo({
+        center: [cp.lng, cp.lat],
+        zoom: Math.max(mapInstanceRef.current?.getZoom() ?? 10, 11.5),
+        duration: 900,
+        essential: true,
+      });
+      if (rainSource === 'jma-nowcast' && timelineFramesRef.current.length > 0) {
+        const cpIdx = findNearestFrameIndex(cp.eta, timelineFramesRef.current);
+        if (cpIdx >= 0) {
+          void handleSelectTimeIndex(cpIdx);
+        }
+      }
+    },
+    [rainSource, handleSelectTimeIndex]
+  );
+
+  const handleAnalyzeRoute = useCallback(async () => {
+    if (!routeOrigin || !routeDestination) {
+      setRouteError('出発地と目的地の両方を指定してください。');
+      return;
+    }
+
+    routeAbortRef.current?.abort();
+    const controller = new AbortController();
+    routeAbortRef.current = controller;
+    const reqId = ++routeRequestIdRef.current;
+
+    setIsAnalyzingRoute(true);
+    setRouteError(null);
+
+    try {
+      const [route, catalog] = await Promise.all([
+        fetchRouteFromProxy({
+          profile: routeProfile,
+          coordinates: [
+            [routeOrigin.lng, routeOrigin.lat],
+            [routeDestination.lng, routeDestination.lat],
+          ],
+          signal: controller.signal,
+        }),
+        jmaFramesCatalogRef.current
+          ? Promise.resolve(jmaFramesCatalogRef.current)
+          : fetchJMANowcastCatalog(),
+      ]);
+
+      if (controller.signal.aborted || reqId !== routeRequestIdRef.current) return;
+      jmaFramesCatalogRef.current = catalog;
+
+      const departureTime = new Date(Date.now() + routeDepartureOffset * 60 * 1000);
+      const analysis = await analyzeRouteWeather({
+        route,
+        departureTime,
+        departureOffsetMinutes: routeDepartureOffset,
+        frames: catalog.frames,
+        catalogIsStale: Boolean((catalog as { isStale?: boolean }).isStale),
+        catalogIsPartial: Boolean((catalog as { isPartial?: boolean }).isPartial),
+        signal: controller.signal,
+      });
+
+      if (controller.signal.aborted || reqId !== routeRequestIdRef.current) return;
+      setRouteAnalysis(analysis);
+
+      if (rainSource === 'jma-nowcast' && timelineFramesRef.current.length > 0) {
+        const depIdx = findNearestFrameIndex(departureTime, timelineFramesRef.current);
+        if (depIdx >= 0) {
+          void handleSelectTimeIndex(depIdx);
+        }
+      }
+    } catch (err) {
+      if (controller.signal.aborted || reqId !== routeRequestIdRef.current) return;
+      if (err instanceof RouteClientError) {
+        if (err.code === 'ABORTED') return;
+        setRouteError(err.userMessage);
+      } else {
+        setRouteError(
+          err instanceof Error && err.message
+            ? err.message
+            : 'ルートまたは雨雲データの取得に失敗しました。'
+        );
+      }
+    } finally {
+      if (reqId === routeRequestIdRef.current) {
+        setIsAnalyzingRoute(false);
+      }
+    }
+  }, [
+    routeOrigin,
+    routeDestination,
+    routeProfile,
+    routeDepartureOffset,
+    rainSource,
+    handleSelectTimeIndex,
+  ]);
 
   return (
     <div className="app-viewport overflow-hidden bg-slate-950 select-none">
@@ -1454,6 +1668,24 @@ export const App: React.FC = () => {
         onSelectFavorite={handleSelectPreset}
         onCameraChange={handleCameraChange}
         mapInstanceRef={mapInstanceRef}
+        routeAnalysis={routeAnalysis}
+        routeOrigin={routeOrigin}
+        routeDestination={routeDestination}
+        routePickMode={routePickMode}
+        onPickRoutePoint={handlePickRoutePoint}
+        timelineCurrentTime={
+          rainSource === 'jma-nowcast'
+            ? (timelineFrames[currentTimeIndex]?.date ?? null)
+            : null
+        }
+        timelineNextTime={
+          rainSource === 'jma-nowcast'
+            ? (timelineFrames[currentTimeIndex + 1]?.date ?? null)
+            : null
+        }
+        isTimelinePlaying={isPlaying}
+        isRainLoading={isLoadingRain}
+        timelineIntervalMs={activePlaybackIntervalMs}
       />
 
       {/* 百名山・お気に入り／設定／共有パネル展開中は背後の地図操作・選択をブロックし、背景タップでパネルを閉じる */}
@@ -1528,6 +1760,33 @@ export const App: React.FC = () => {
             }
           />
 
+          <RoutePlanner
+            presets={PRESET_LOCATIONS}
+            favorites={favorites}
+            origin={routeOrigin}
+            destination={routeDestination}
+            onChangeOrigin={setRouteOrigin}
+            onChangeDestination={setRouteDestination}
+            onSwapEndpoints={handleSwapRouteEndpoints}
+            profile={routeProfile}
+            onChangeProfile={setRouteProfile}
+            departureOffsetMinutes={routeDepartureOffset}
+            onChangeDepartureOffsetMinutes={setRouteDepartureOffset}
+            onStartMapPick={handleStartRouteMapPick}
+            onRunRouteCheck={handleAnalyzeRoute}
+            onClearRoute={handleClearRoute}
+            analysis={routeAnalysis}
+            isLoading={isAnalyzingRoute}
+            error={routeError}
+            onFocusCheckpoint={handleFocusRouteCheckpoint}
+            isOpen={openTopPanel === 'route'}
+            onToggleOpen={() =>
+              runViewTransition(() =>
+                setOpenTopPanel((prev) => (prev === 'route' ? null : 'route'))
+              )
+            }
+          />
+
           {installPromptEvent && (
             <button
               id="pwa-install-btn"
@@ -1589,6 +1848,27 @@ export const App: React.FC = () => {
           </button>
         </div>
       </header>
+
+      {/* ルート地点の地図クリック選択モード案内バナー */}
+      {routePickMode && (
+        <div
+          id="route-map-pick-banner"
+          role="status"
+          className="fixed left-1/2 -translate-x-1/2 z-40 flex items-center gap-2.5 px-3.5 py-2 rounded-full bg-slate-900/95 border border-sky-400/60 shadow-2xl text-xs text-slate-100 backdrop-blur-md"
+          style={{ top: 'calc(var(--safe-top) + 4.2rem)' }}
+        >
+          <span className="font-semibold text-sky-200 whitespace-nowrap">
+            地図をタップして{routePickMode === 'origin' ? '出発地' : '目的地'}を選択
+          </span>
+          <button
+            type="button"
+            onClick={handleCancelRouteMapPick}
+            className="px-2.5 py-1 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold cursor-pointer"
+          >
+            キャンセル
+          </button>
+        </div>
+      )}
 
       {/* クリック地点の近傍にフローティング表示される地点インスペクター (機能B: 単一インスタンスでView Transitions固有性を保証) */}
       <div className="pointer-events-none fixed inset-0 z-[35]">
@@ -1780,6 +2060,14 @@ export const App: React.FC = () => {
                     className="text-sky-400 hover:underline"
                   >
                     MapLibre GL JS
+                  </a>
+                  <a
+                    href="https://openrouteservice.org/"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-sky-400 hover:underline"
+                  >
+                    &copy; openrouteservice.org by HeiGIT
                   </a>
                 </div>
               </div>
