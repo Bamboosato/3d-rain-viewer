@@ -95,7 +95,7 @@ function validateRoutePayload(
 
   let radiuses: number[];
   if (obj.radiuses === undefined) {
-    const defaultRadius = obj.profile === 'foot-hiking' ? 1500 : 1000;
+    const defaultRadius = obj.profile === 'foot-hiking' ? 3000 : 5000;
     radiuses = coordinates.map(() => defaultRadius);
   } else {
     if (!Array.isArray(obj.radiuses) || obj.radiuses.length !== coordinates.length) {
@@ -109,12 +109,12 @@ function validateRoutePayload(
       if (
         typeof r !== 'number' ||
         !Number.isFinite(r) ||
-        (r !== -1 && (r < 1 || r > 5000))
+        (r !== -1 && (r < 1 || r > 10000))
       ) {
         return {
           ok: false,
           code: 'INVALID_REQUEST',
-          error: 'radiuses には -1 または 1〜5000 の数値を指定してください。',
+          error: 'radiuses には -1 または 1〜10000 の数値を指定してください。',
         };
       }
     }
@@ -286,10 +286,13 @@ export async function handleRouteRequest(
     }
 
     if (upstreamErrorCode === 2010) {
+      const pointNotFoundMessage =
+        profile === 'foot-hiking'
+          ? '指定地点の近くに通行可能な登山道・歩道が見つかりませんでした。地点を少しずらして再試行してください。'
+          : '指定地点の近くに車・自転車で通行可能な道路が見つかりませんでした。山頂座標の場合は「登山・徒歩」へ切り替えるか、地図で登山口・駐車場を指定してください。';
       return jsonResponse(
         {
-          error:
-            '指定地点の近くに通行可能な道路・登山道が見つかりませんでした。地点を少しずらして再試行してください。',
+          error: pointNotFoundMessage,
           code: 'POINT_NOT_FOUND',
           upstreamCode: 2010,
         },
