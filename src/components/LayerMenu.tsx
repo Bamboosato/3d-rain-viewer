@@ -54,7 +54,7 @@ export const LayerMenu: React.FC<LayerMenuProps> = ({
         onClick={handleToggleOpen}
         aria-expanded={isOpen}
         aria-controls="layer-menu-panel"
-        className="inline-flex items-center gap-1 sm:gap-1.5 min-h-[38px] sm:min-h-[42px] px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-slate-900/90 hover:bg-slate-800/95 backdrop-blur-md border border-slate-700/80 shadow-lg text-xs sm:text-sm font-bold text-slate-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+        className="inline-flex items-center gap-1 sm:gap-1.5 min-h-[38px] sm:min-h-[42px] px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-slate-900/65 hover:bg-slate-800/80 backdrop-blur-md border border-slate-700/60 shadow-lg text-xs sm:text-sm font-bold text-slate-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
       >
         <Settings
           className={`w-4 h-4 text-sky-400 transition-transform duration-300 shrink-0 ${

@@ -1694,12 +1694,12 @@ export const App: React.FC = () => {
           id="top-panel-backdrop"
           aria-hidden="true"
           onClick={() => runViewTransition(() => setOpenTopPanel(null))}
-          className="fixed inset-0 z-30 pointer-events-auto bg-slate-950/20"
+          className="fixed inset-0 z-30 pointer-events-auto touch-none bg-slate-950/20"
         />
       )}
 
       {/* 上部ヘッダーバー（スマホでは左側はアプリアイコンのみ表示し、右側ボタン群が画面幅に収まるよう調整） */}
-      <header className="safe-header-padding pointer-events-none absolute top-0 inset-x-0 z-40 flex items-center justify-between gap-2 bg-gradient-to-b from-slate-950/95 via-slate-950/55 to-transparent">
+      <header className="safe-header-padding pointer-events-none absolute top-0 inset-x-0 z-40 flex items-center justify-between gap-2 bg-gradient-to-b from-slate-950/70 via-slate-950/35 to-transparent">
         <div className="pointer-events-auto flex items-center gap-2 min-w-0 shrink-0">
           <div
             title="3D RainScape | リアルタイム雨雲 × 3D立体地形ビューア"
@@ -1810,7 +1810,7 @@ export const App: React.FC = () => {
             className={`inline-flex items-center justify-center gap-1.5 w-[38px] h-[38px] sm:w-auto sm:min-h-[42px] sm:px-3.5 py-1.5 rounded-xl backdrop-blur-md border shadow-lg text-xs sm:text-sm font-bold transition-colors cursor-pointer shrink-0 ${
               isLocating
                 ? 'bg-sky-500/25 border-sky-400/60 text-sky-200'
-                : 'bg-slate-900/90 hover:bg-slate-800 border-slate-700/80 text-slate-100'
+                : 'bg-slate-900/65 hover:bg-slate-800/80 border-slate-700/60 text-slate-100'
             }`}
           >
             <LocateFixed
@@ -1842,7 +1842,7 @@ export const App: React.FC = () => {
                 { focusTargetSelector: '#jaxa-credit-close-btn' }
               )
             }
-            className="inline-flex items-center justify-center w-[38px] h-[38px] sm:w-[42px] sm:h-[42px] rounded-xl bg-slate-900/90 hover:bg-slate-800 backdrop-blur-md border border-slate-700/80 shadow-lg text-slate-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 shrink-0"
+            className="inline-flex items-center justify-center w-[38px] h-[38px] sm:w-[42px] sm:h-[42px] rounded-xl bg-slate-900/65 hover:bg-slate-800/80 backdrop-blur-md border border-slate-700/60 shadow-lg text-slate-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 shrink-0"
           >
             <Info className="w-4 h-4 sm:w-5 sm:h-5 text-sky-400" />
           </button>

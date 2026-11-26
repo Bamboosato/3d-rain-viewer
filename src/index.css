@@ -61,7 +61,7 @@
     overflow: hidden;
     background-color: #020617;
     accent-color: var(--brand-color);
-    touch-action: manipulation;
+    touch-action: pan-x pan-y;
     -webkit-text-size-adjust: 100%;
   }
 
@@ -70,7 +70,7 @@
   select,
   label,
   a {
-    touch-action: manipulation;
+    touch-action: pan-x pan-y;
   }
 }
 
@@ -84,7 +84,7 @@
   width: 100%;
   height: 100%;
   overflow: hidden;
-  touch-action: manipulation;
+  touch-action: pan-x pan-y;
 }
 
 /* お気に入り地点の地図上マーカー（4カテゴリ対応・ズームレベル連動: 広域=丸型ピンのみ / 詳細=丸型ピン＋地点名） */
